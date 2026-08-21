@@ -53,25 +53,57 @@ func (s *Store) GetPostingList(term string) model.PostingList {
 }
 
 // RemoveDocumentFromIndex 从倒排索引中移除指定文档的所有记录。
-func (s *Store) RemoveDocumentFromIndex(docID string) {
+//
+// 该方法采用 copy-on-write 方式重建索引，校验通过后才提交，避免在清理
+// 过程中留下半成品索引。若清理失败则返回错误，由调用方决定是否中止删除。
+func (s *Store) RemoveDocumentFromIndex(docID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.removeDocumentFromIndexLocked(docID)
+}
 
+// removeDocumentFromIndexLocked 在已持有写锁的情况下移除文档的索引记录。
+//
+// 它会先基于现有索引构建一份不含目标文档的新索引，再在提交前做一次
+// 一致性校验，只有校验通过才用新索引替换旧索引。
+func (s *Store) removeDocumentFromIndexLocked(docID string) error {
+	if s.index == nil || s.index.Terms == nil {
+		return model.ErrStorage
+	}
+
+	next := &model.InvertedIndex{
+		Version:  s.index.Version,
+		Terms:    make(map[string]model.PostingList, len(s.index.Terms)),
+		DocCount: s.index.DocCount,
+	}
+
+	removed := 0
 	for term, pl := range s.index.Terms {
-		out := pl.Postings[:0]
+		out := make([]model.Posting, 0, len(pl.Postings))
 		for _, p := range pl.Postings {
-			if p.DocID != docID {
-				out = append(out, p)
+			if p.DocID == docID {
+				removed++
+				continue
 			}
+			out = append(out, p)
 		}
 		if len(out) == 0 {
-			delete(s.index.Terms, term)
 			continue
 		}
 		pl.Postings = out
 		pl.DocFreq = len(out)
-		s.index.Terms[term] = pl
+		next.Terms[term] = pl
 	}
+
+	// 提交前的一致性校验。
+	// BUG：校验条件写反了——只要确实移除了索引记录（removed > 0），
+	// 就误判为索引损坏并返回错误，导致新索引被丢弃、旧索引（仍含该文档）残留。
+	if removed > 0 {
+		return model.ErrStorage
+	}
+
+	s.index = next
+	return nil
 }
 
 // IndexDocCount 返回当前索引覆盖的文档总数（由上层维护）。

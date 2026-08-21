@@ -82,7 +82,10 @@ func (s *Store) UpdateDocument(doc *model.Document) error {
 	return nil
 }
 
-// DeleteDocument 按 ID 删除文档。
+// DeleteDocument 按 ID 删除文档，并同步清理其倒排索引。
+//
+// 为保证文档与索引之间的一致性，先清理倒排索引，再删除文档；索引清理
+// 失败时中止删除，避免出现“文档删了但索引还在”的孤儿索引。
 func (s *Store) DeleteDocument(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -90,6 +93,13 @@ func (s *Store) DeleteDocument(id string) error {
 	if _, ok := s.documents[id]; !ok {
 		return model.ErrNotFound
 	}
+
+	// 先清理倒排索引，避免删除文档后留下孤儿索引。
+	if err := s.removeDocumentFromIndexLocked(id); err != nil {
+		// 清理失败则放弃本次删除，保持文档与索引一致。
+		return err
+	}
+
 	delete(s.documents, id)
 	s.persistLocked()
 	return nil

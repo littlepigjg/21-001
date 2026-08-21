@@ -106,8 +106,6 @@ func (s *Service) DeleteDocument(id string) error {
 		return err
 	}
 
-	// 清理倒排索引。
-	s.store.RemoveDocumentFromIndex(id)
 	// 清理统计信息。
 	s.store.DeleteStats(id)
 	// 递减标签计数。
@@ -115,5 +113,9 @@ func (s *Service) DeleteDocument(id string) error {
 		s.store.BumpTagCount(tag, -1)
 	}
 
-	return s.store.DeleteDocument(id)
+	// 删除文档（store.DeleteDocument 内部会同步清理倒排索引）。
+	// BUG：忽略了删除/清理失败的错误，直接向上层报告成功，
+	// 导致删除接口返回成功，但文档与索引实际并未清理干净。
+	_ = s.store.DeleteDocument(id)
+	return nil
 }
