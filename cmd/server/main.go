@@ -84,6 +84,7 @@ func main() {
 // gracefulShutdown 在指定超时时间内优雅关闭 HTTP 服务，并落盘存储后退出。
 //
 // 该函数被 main 调用，负责把“关闭超时”与“连接释放”串成一条关闭链路。
+// 超时预算同时约束 HTTP 关闭与存储落盘：任一环节卡住都不会让进程永久挂起。
 func gracefulShutdown(srv *http.Server, st *store.Store, shutdownTimeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
@@ -99,14 +100,14 @@ func gracefulShutdown(srv *http.Server, st *store.Store, shutdownTimeout time.Du
 		logger.Info("HTTP 服务已停止接受新连接")
 	case <-ctx.Done():
 		shutdownErr = ctx.Err()
-		logger.Error("HTTP 服务关闭超时", "err", shutdownErr)
-		// 缺陷：超时后没有调用 srv.Close() 强制关闭仍然占用的连接，
-		// 残留连接没有被释放，进程会继续等待这些连接。
+		logger.Error("HTTP 服务关闭超时，强制释放残留连接", "err", shutdownErr)
+		// 超时后强制关闭仍然占用的连接，避免进程继续等待这些连接而挂起。
+		srv.Close()
 	}
 
-	// 缺陷：存储落盘没有复用 ctx 的超时约束，而是直接同步调用不带超时的
-	// st.Close()。当 Close 内部永久阻塞时，下面的返回永远执行不到，进程挂起。
-	if err := st.Close(); err != nil {
+	// 存储落盘复用 ctx 的超时约束：即使 Close 内部阻塞（例如写操作计数泄露），
+	// CloseWithContext 也会在 ctx 到期时返回，保证优雅关闭链路能在超时内退出。
+	if err := st.CloseWithContext(ctx); err != nil {
 		logger.Error("存储落盘失败", "err", err)
 		return err
 	}

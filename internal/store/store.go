@@ -110,11 +110,14 @@ func (s *Store) Load() error {
 }
 
 // Save 将所有内存数据持久化到磁盘（读锁保护）。
+//
+// 登记一次进行中的写操作，供 Close 在关闭前等待其结束；在落盘完成后必须归还
+// 计数，否则计数被永久泄露，Close 中的 drainWrites 会永远等不到计数归零，
+// 进而导致优雅关闭时进程挂起。
 func (s *Store) Save() error {
-	// 登记一次进行中的写操作，供 Close 在关闭前等待其结束。
 	s.markWriteStart()
-	// 缺陷：写操作结束没有调用 s.markWriteDone() 归还计数，计数被永久泄露，
-	// Close 中的 drainWrites 永远等不到计数归零。
+	defer s.markWriteDone()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.saveLocked()
@@ -167,8 +170,9 @@ func (s *Store) saveLocked() error {
 
 // Close 关闭存储：先等待所有进行中的写操作结束，再执行一次最终落盘。
 //
-// 该实现没有超时控制，完全依赖 drainWrites 返回；一旦写操作计数被泄露，
-// drainWrites 会永久阻塞，导致优雅关闭时进程挂起。
+// 该实现不带超时控制，完全依赖 drainWrites 返回；因此只应在确信写操作计数
+// 不会泄露的场景使用。主流程的优雅关闭应改用 CloseWithContext，以保证在
+// 超时时间内一定能退出。
 func (s *Store) Close() error {
 	s.closeOnce.Do(func() {
 		s.drainWrites()
@@ -179,8 +183,10 @@ func (s *Store) Close() error {
 
 // CloseWithContext 在 ctx 超时或取消前完成落盘并关闭存储。
 //
-// 该方法是带超时约束的正确关闭入口，主流程优雅关闭时应优先使用它；但当前
-// 主流程直接调用了不带超时的 Close，导致超时约束形同虚设。
+// 该方法是带超时约束的正确关闭入口，主流程优雅关闭时应使用它：即使内部
+// drainWrites 因写操作计数泄露而阻塞，也会在 ctx 到期时返回，不会让进程
+// 永久挂起。注意：ctx 到期后底层 drain+flush 仍会在后台继续运行，本次调用
+// 仅返回 ctx.Err()；上层的 closeOnce 保证后续重复调用返回一致结果。
 func (s *Store) CloseWithContext(ctx context.Context) error {
 	done := make(chan error, 1)
 	go func() {
