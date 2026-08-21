@@ -61,7 +61,9 @@ func (d *Document) AddTag(name string) {
 // RemoveTag 从文档中移除指定标签，返回是否实际移除了标签。
 //
 // 为避免频繁分配，调用方可传入一个可复用的缓冲切片 buf，该方法会复用
-// buf 的底层数组来承载过滤结果。调用方需保证 buf 的容量足以容纳结果。
+// buf 的底层数组作为临时工作区承载过滤结果，但最终写入 d.Tags 的是一个
+// 长度恰好等于过滤结果的独立切片，既不残留被删除的标签，也不与 buf 的
+// 底层数组共享内存，从而避免调用方后续复用 buf 时误改本文档的标签。
 func (d *Document) RemoveTag(name string, buf []string) bool {
 	if name == "" {
 		return false
@@ -78,8 +80,11 @@ func (d *Document) RemoveTag(name string, buf []string) bool {
 		}
 		out = append(out, t)
 	}
-	// BUG: 复用 buf 底层数组后按原始长度截断，未覆盖的尾部仍残留被删除的标签。
-	d.Tags = out[:len(d.Tags)]
+	// 过滤结果写入一个独立的、长度恰好等于结果集的切片，避免与 buf
+	// 底层数组共享内存导致跨文档串标签，也不残留尾部数据。
+	result := make([]string, len(out))
+	copy(result, out)
+	d.Tags = result
 	return removed
 }
 

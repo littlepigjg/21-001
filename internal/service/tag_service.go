@@ -67,12 +67,13 @@ func (s *Service) DeleteTag(id string) error {
 		}
 	}
 
-	// 复用一个共享底层数组作为过滤缓冲，避免为每篇文档重复分配内存。
+	// 复用一个共享缓冲切片作为 RemoveTag 的临时工作区，避免为每篇文档
+	// 重复分配内存。每轮循环开始前将缓冲长度归零即可；RemoveTag 会把过滤
+	// 结果写入一个独立切片，因此即使复用同一底层数组也不会造成文档间
+	// 标签串改（此前用文档自身标签做缓冲种子并复用底层数组是缺陷来源）。
 	buf := make([]string, 0, 16)
 	for _, d := range affected {
-		// BUG: 用文档自身的原始标签作为缓冲种子，导致 RemoveTag 复用该
-		// 数组做原地过滤时，被删除的标签残留在缓冲尾部。
-		buf = append(buf[:0], d.Tags...)
+		buf = buf[:0]
 		d.RemoveTag(tag.Name, buf)
 		_ = s.store.UpdateDocument(d)
 	}
