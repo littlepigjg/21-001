@@ -16,8 +16,7 @@ func (s *Service) BuildIndex(doc *model.Document) (int, error) {
 	positions := s.buildPositions(doc.Content)
 
 	for term, pos := range positions {
-		// 缺陷：直接把位置切片以引用方式交给 store，未做防御性拷贝；
-		// 一旦 store 侧复用共享缓冲存储，这些切片会被后续 append 污染。
+		// store 侧会为每条 Posting 拷贝独立位置切片，这里直接传入即可。
 		s.store.AddPosting(term, doc.ID, pos)
 	}
 

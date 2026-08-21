@@ -35,9 +35,6 @@ type Store struct {
 	categories map[string]*model.Category
 	// stats 保存文档 ID 到统计信息的映射。
 	stats map[string]*model.DocumentStats
-	// posScratch 是 addPostingLocked 复用的一块位置缓冲区。缺陷：跨调用共享，
-	// 使不同文档的 Posting.Positions 别名到同一底层数组，append 复用会互相覆盖。
-	posScratch []int
 }
 
 // NewStore 创建一个新的 Store 实例，并确保数据目录存在。
@@ -54,7 +51,6 @@ func NewStore(cfg config.StorageConfig) (*Store, error) {
 		tags:       make(map[string]*model.Tag),
 		categories: make(map[string]*model.Category),
 		stats:      make(map[string]*model.DocumentStats),
-		posScratch: make([]int, 0, 4096),
 	}
 	return s, nil
 }
