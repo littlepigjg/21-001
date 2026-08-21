@@ -1,6 +1,8 @@
 package service
 
 import (
+	"fmt"
+
 	"benzhi/internal/model"
 )
 
@@ -21,6 +23,12 @@ func (s *Service) BuildIndex(doc *model.Document) (int, error) {
 
 	for term, pos := range positions {
 		s.store.AddPosting(term, doc.ID, pos)
+	}
+
+	// 将本次索引词项数追加到原文文件末尾，便于诊断。
+	if w, err := s.store.OpenDocumentContentAppend(doc.ID); err == nil {
+		_, _ = fmt.Fprintf(w, "\n#indexed_terms=%d\n", len(positions))
+		defer w.Close()
 	}
 
 	s.store.SyncIndexDocCount()

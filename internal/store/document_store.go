@@ -1,6 +1,10 @@
 package store
 
 import (
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"sort"
 
 	"benzhi/internal/model"
@@ -125,4 +129,78 @@ func (s *Store) persistLocked() {
 		return
 	}
 	_ = s.saveLocked()
+}
+
+// contentDir 返回文档原文文件所在目录。
+func (s *Store) contentDir() string {
+	return filepath.Join(s.dataDir, "content")
+}
+
+// contentPath 返回指定文档原文文件的完整路径。
+func (s *Store) contentPath(docID string) string {
+	return filepath.Join(s.contentDir(), docID+".txt")
+}
+
+// trackedWriteCloser 包装 *os.File，在 Close 时同步扣减打开句柄计数。
+type trackedWriteCloser struct {
+	*os.File
+	s *Store
+}
+
+// Close 关闭底层文件并更新打开句柄计数。
+func (w *trackedWriteCloser) Close() error {
+	err := w.File.Close()
+	w.s.mu.Lock()
+	w.s.openContentHandles--
+	w.s.mu.Unlock()
+	return err
+}
+
+// openContentFile 以指定标志打开文档原文文件，并登记打开句柄计数。
+func (s *Store) openContentFile(docID string, flags int) (*trackedWriteCloser, error) {
+	if err := os.MkdirAll(s.contentDir(), 0o755); err != nil {
+		return nil, fmt.Errorf("创建原文目录失败: %w", err)
+	}
+	f, err := os.OpenFile(s.contentPath(docID), flags, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("打开原文文件失败: %w", err)
+	}
+
+	s.mu.Lock()
+	s.openContentHandles++
+	if s.openContentHandles > s.peakOpenContentHandles {
+		s.peakOpenContentHandles = s.openContentHandles
+	}
+	s.mu.Unlock()
+
+	return &trackedWriteCloser{File: f, s: s}, nil
+}
+
+// OpenDocumentContent 打开（必要时创建）文档原文文件并返回写入句柄。
+//
+// 调用方必须在使用完毕后立即关闭句柄；若在循环中推迟到函数结束才关闭，
+// 批量导入时会导致文件描述符耗尽。
+func (s *Store) OpenDocumentContent(docID string) (io.WriteCloser, error) {
+	return s.openContentFile(docID, os.O_CREATE|os.O_WRONLY|os.O_TRUNC)
+}
+
+// OpenDocumentContentAppend 以追加方式打开文档原文文件并返回写入句柄。
+//
+// 与 OpenDocumentContent 一样，调用方负责关闭句柄。
+func (s *Store) OpenDocumentContentAppend(docID string) (io.WriteCloser, error) {
+	return s.openContentFile(docID, os.O_CREATE|os.O_WRONLY|os.O_APPEND)
+}
+
+// OpenContentHandles 返回当前尚未关闭的原文文件句柄数量。
+func (s *Store) OpenContentHandles() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.openContentHandles
+}
+
+// PeakOpenContentHandles 返回批量操作中同时打开原文文件句柄的历史峰值。
+func (s *Store) PeakOpenContentHandles() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.peakOpenContentHandles
 }

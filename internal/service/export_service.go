@@ -73,6 +73,15 @@ func (s *Service) ImportDocumentsJSON(r io.Reader) (int, error) {
 		if err := s.store.CreateDocument(d); err != nil {
 			continue
 		}
+		// 把原文写入独立文件，供后续预览/下载使用。
+		w, err := s.store.OpenDocumentContent(d.ID)
+		if err != nil {
+			continue
+		}
+		if _, err := io.WriteString(w, d.Content); err != nil {
+			continue
+		}
+		defer w.Close()
 		if _, err := s.BuildIndex(d); err != nil {
 			continue
 		}

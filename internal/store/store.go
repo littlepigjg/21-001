@@ -35,6 +35,11 @@ type Store struct {
 	categories map[string]*model.Category
 	// stats 保存文档 ID 到统计信息的映射。
 	stats map[string]*model.DocumentStats
+
+	// openContentHandles 记录当前尚未关闭的原文文件句柄数量。
+	openContentHandles int
+	// peakOpenContentHandles 记录批量操作中同时打开原文文件句柄的历史峰值。
+	peakOpenContentHandles int
 }
 
 // NewStore 创建一个新的 Store 实例，并确保数据目录存在。
