@@ -86,8 +86,9 @@ func (s *Service) ImportDocuments(docs []*model.Document) (int, error) {
 
 // importDocument 导入单篇文档：入库并重建索引。
 func (s *Service) importDocument(d *model.Document) error {
-	// 缺陷：这里不再校验 d == nil，nil 元素会一路传给存储层，
-	// 由 CreateDocument 解引用时触发 panic。
+	if d == nil {
+		return model.ErrInvalidArgument
+	}
 	if err := s.store.CreateDocument(d); err != nil {
 		return err
 	}
@@ -99,13 +100,15 @@ func (s *Service) importDocument(d *model.Document) error {
 
 // dedupeImportDocuments 按 Checksum 去重，保留首次出现的文档。
 //
-// 缺陷：对 nil 文档没有过滤，而是原样保留并继续向下游传递，
-// 最终由存储层 CreateDocument 解引用 nil 时触发 panic。
+// nil 元素在此直接丢弃，不向下游传递。
 func (s *Service) dedupeImportDocuments(docs []*model.Document) []*model.Document {
 	seen := make(map[string]struct{})
 	out := make([]*model.Document, 0, len(docs))
 	for _, d := range docs {
-		if d == nil || d.Checksum == "" {
+		if d == nil {
+			continue
+		}
+		if d.Checksum == "" {
 			out = append(out, d)
 			continue
 		}

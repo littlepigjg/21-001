@@ -11,7 +11,9 @@ import (
 //
 // 若文档 ID 已存在则返回 model.ErrAlreadyExists。
 func (s *Store) CreateDocument(doc *model.Document) error {
-	// 缺陷：删除了 doc == nil 的校验，nil 文档会在下方解引用 doc.Title 时触发 panic。
+	if doc == nil {
+		return model.ErrInvalidArgument
+	}
 	if doc.Title == "" || doc.Content == "" {
 		return model.ErrInvalidArgument
 	}
