@@ -99,10 +99,8 @@ func (s *Service) matchTags(doc *model.Document, tags []string) bool {
 // buildHits 根据文档构造命中项，并按排序方式排序。
 func (s *Service) buildHits(docs []*model.Document, queryTerms []string, sortBy string) []model.SearchHit {
 	N := s.store.CountDocuments()
-	avgdl := averageDocLen(docs)
-	if avgdl <= 0 {
-		avgdl = 1
-	}
+	stats := computeDocLengthStats(docs)
+
 	docFreq := make(map[string]int, len(queryTerms))
 	for _, term := range queryTerms {
 		docFreq[term] = s.store.GetPostingList(term).DocFreq
@@ -113,7 +111,7 @@ func (s *Service) buildHits(docs []*model.Document, queryTerms []string, sortBy 
 		st := s.store.GetStats(doc.ID)
 		hits = append(hits, model.SearchHit{
 			Document:      *doc,
-			Score:         s.scoreDocument(queryTerms, doc, docFreq, N, avgdl),
+			Score:         s.scoreDocument(queryTerms, doc, docFreq, N, stats),
 			ViewCount:     st.ViewCount,
 			DownloadCount: st.DownloadCount,
 		})
