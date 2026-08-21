@@ -14,20 +14,38 @@ func (s *Service) BuildIndex(doc *model.Document) (int, error) {
 
 	// 分词并记录每个词项的出现位置。
 	tokens := s.tokenizer.Tokenize(doc.Content)
-	positions := make(map[string][]int)
-	for i, tok := range tokens {
-		positions[tok] = append(positions[tok], i)
-	}
+	termPositions := aggregateTermPositions(tokens)
 
-	for term, pos := range positions {
-		s.store.AddPosting(term, doc.ID, pos)
+	// 逐词项构造倒排列表，并合并写入共享倒排索引。
+	written := 0
+	for term, positions := range termPositions {
+		pl := model.PostingList{
+			Term: term,
+			Postings: []model.Posting{{
+				DocID:     doc.ID,
+				TermFreq:  len(positions),
+				Positions: positions,
+			}},
+		}
+		if s.store.MergePostingList(term, pl) {
+			written++
+		}
 	}
 
 	s.store.SyncIndexDocCount()
 	if err := s.store.FlushIndex(); err != nil {
 		return 0, err
 	}
-	return len(positions), nil
+	return written, nil
+}
+
+// aggregateTermPositions 将分词结果按词项聚合出现位置。
+func aggregateTermPositions(tokens []string) map[string][]int {
+	positions := make(map[string][]int)
+	for i, tok := range tokens {
+		positions[tok] = append(positions[tok], i)
+	}
+	return positions
 }
 
 // RemoveIndex 从索引中移除文档（文档删除时调用）。

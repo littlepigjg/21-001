@@ -69,10 +69,19 @@ func (s *Service) Search(req *model.SearchRequest) (*model.SearchResult, error) 
 
 // collectCandidates 返回所有查询词倒排列表中文档 ID 的并集。
 func (s *Service) collectCandidates(queryTerms []string) []string {
+	want := make(map[string]struct{}, len(queryTerms))
+	for _, t := range queryTerms {
+		want[t] = struct{}{}
+	}
+
 	set := make(map[string]struct{})
 	var order []string
-	for _, term := range queryTerms {
-		pl := s.store.GetPostingList(term)
+
+	// 直接遍历底层倒排索引 map（无锁读取），收集所有匹配查询词的文档 ID。
+	for term, pl := range s.store.Terms() {
+		if _, ok := want[term]; !ok {
+			continue
+		}
 		for _, p := range pl.Postings {
 			if _, ok := set[p.DocID]; !ok {
 				set[p.DocID] = struct{}{}

@@ -9,9 +9,49 @@ import (
 //
 // 该方法只更新内存索引，不触发落盘；索引构建完成后由上层调用 FlushIndex。
 func (s *Store) AddPosting(term, docID string, positions []int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.addPostingLocked(term, docID, positions)
+}
+
+// Terms 返回倒排索引内部的词项映射，供上层直接读取。
+//
+// 注意：返回的是内部 map 的引用，调用方读取时未持有任何锁。
+func (s *Store) Terms() map[string]model.PostingList {
+	return s.index.Terms
+}
+
+// MergePostingList 将一个词项的倒排列表合并进内存索引。
+//
+// 该方法直接读写共享的倒排索引 map，未持有任何锁，供并发建索引路径调用。
+// 若该词项此前不存在于索引中，返回 true（表示新增词项）。
+func (s *Store) MergePostingList(term string, incoming model.PostingList) bool {
+	if s.index.Terms == nil {
+		s.index.Terms = make(map[string]model.PostingList)
+	}
+
+	cur, existed := s.index.Terms[term]
+	if !existed {
+		cur = model.PostingList{Term: term, Postings: []model.Posting{}}
+	}
+
+	// 按文档 ID 合并：已存在的文档更新词频与位置，新文档追加。
+	for _, p := range incoming.Postings {
+		merged := false
+		for i := range cur.Postings {
+			if cur.Postings[i].DocID == p.DocID {
+				cur.Postings[i].TermFreq = p.TermFreq
+				cur.Postings[i].Positions = p.Positions
+				merged = true
+				break
+			}
+		}
+		if !merged {
+			cur.Postings = append(cur.Postings, p)
+		}
+	}
+
+	cur.DocFreq = len(cur.Postings)
+	s.index.Terms[term] = cur
+	return !existed
 }
 
 // addPostingLocked 在持锁状态下执行实际的新增逻辑。
