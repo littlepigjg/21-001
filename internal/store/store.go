@@ -106,7 +106,8 @@ func (s *Store) Load() error {
 // migrateIndexLocked 对加载到的倒排索引执行版本迁移与结构校正。
 //
 // 调用方必须已持有写锁。该方法会将旧版本索引升级到当前版本，并根据内存中的
-// 文档表校正 DocCount；词项 map 若尚未初始化，则由上层在首次建索引时懒初始化。
+// 文档表校正 DocCount；词项 map 若为 nil（空索引落盘场景）则初始化为空 map，
+// 保证迁移完成后索引始终处于可写状态。
 func (s *Store) migrateIndexLocked(idx *model.InvertedIndex) {
 	if idx == nil {
 		s.index = model.NewInvertedIndex()
@@ -119,11 +120,16 @@ func (s *Store) migrateIndexLocked(idx *model.InvertedIndex) {
 	}
 
 	// 迁移旧版本索引：升级版本号并校正文档计数。
-	// 词项 map 直接沿用原索引的引用，未对 nil 词项做初始化。
+	// 旧索引的 Terms 可能为 nil（空索引落盘后 terms 字段为 null），
+	// 此处必须初始化为空 map，否则后续首次写入词项会向 nil map 写入触发 panic。
+	terms := idx.Terms
+	if terms == nil {
+		terms = make(map[string]model.PostingList)
+	}
 	migrated := &model.InvertedIndex{
 		Version:  indexCurrentVersion,
 		DocCount: len(s.documents),
-		Terms:    idx.Terms,
+		Terms:    terms,
 	}
 	s.index = migrated
 }

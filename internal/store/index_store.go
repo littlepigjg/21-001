@@ -59,6 +59,23 @@ func (s *Store) NeedsIndexRebuild() bool {
 	return s.index == nil || s.index.Terms == nil
 }
 
+// EnsureIndexInit 保证倒排索引的词项 map 已初始化为可写状态。
+//
+// 适用于加载空索引、且无历史文档可触发重建的场景：迁移路径不会重建词项，
+// 此时调用本方法把 nil map 初始化为空 map，避免首次写入触发 nil map panic。
+// 已初始化时为空操作。
+func (s *Store) EnsureIndexInit() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.index == nil {
+		s.index = model.NewInvertedIndex()
+		return
+	}
+	if s.index.Terms == nil {
+		s.index.Terms = make(map[string]model.PostingList)
+	}
+}
+
 // RemoveDocumentFromIndex 从倒排索引中移除指定文档的所有记录。
 func (s *Store) RemoveDocumentFromIndex(docID string) {
 	s.mu.Lock()

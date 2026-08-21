@@ -51,9 +51,10 @@ func (s *Service) EnsureIndexReady() error {
 		return err
 	}
 
-	// 没有历史文档时直接返回，未初始化词项 map；
-	// 后续首次上传文档建索引时，会向 nil map 写入并触发 panic。
+	// 没有历史文档时无法重建，但必须保证词项 map 已初始化为可写状态，
+	// 否则后续首次上传文档建索引时会向 nil map 写入并触发 panic。
 	if len(docs) == 0 {
+		s.store.EnsureIndexInit()
 		return nil
 	}
 
