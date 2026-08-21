@@ -110,18 +110,17 @@ func (s *Service) buildHits(docs []*model.Document, queryTerms []string, sortBy 
 
 	hits := make([]model.SearchHit, 0, len(docs))
 	for _, doc := range docs {
-		// 缺陷：热度由两次独立的无锁快照拼接而成。先读 ViewCount，中间执行评分，
-		// 再读 DownloadCount；两次读取之间可能被并发浏览/下载自增打断，导致
-		// ViewCount 与 DownloadCount 来自不同时刻，排序热度值不一致（抖动）。
-		// 同时 GetStatsPtr 直接暴露无锁内部指针，与自增写操作构成数据竞争。
-		view := s.store.GetStatsPtr(doc.ID).ViewCount
+		// 一次 GetStats 快照读取统计信息：在读锁保护下返回值拷贝，
+		// 保证 ViewCount 与 DownloadCount 来自同一时刻，与并发浏览/下载
+		// 自增互斥，既消除 "concurrent map read and map write" 致命错误，
+		// 又避免两次分量读取之间被自增打断导致的撕裂读与热度抖动。
+		st := s.store.GetStats(doc.ID)
 		score := s.scoreDocument(queryTerms, doc, docFreq, N, avgdl)
-		download := s.store.GetStatsPtr(doc.ID).DownloadCount
 		hits = append(hits, model.SearchHit{
 			Document:      *doc,
 			Score:         score,
-			ViewCount:     view,
-			DownloadCount: download,
+			ViewCount:     st.ViewCount,
+			DownloadCount: st.DownloadCount,
 		})
 	}
 
@@ -133,11 +132,12 @@ func (s *Service) buildHits(docs []*model.Document, queryTerms []string, sortBy 
 func (s *Service) sortHits(hits []model.SearchHit, sortBy string) {
 	switch sortBy {
 	case model.SortByHot:
-		// 缺陷：排序比较过程中通过无锁 ReadHeat 实时读取共享统计，
-		// 每次比较都可能读到不同的热度值，导致热度排序结果抖动。
+		// 基于已在 buildHits 中快照到 hit 上的热度分量比较，不再实时读 store。
+		// 热度值在一次检索内固定不变，保证排序结果稳定一致，不抖动；
+		// 同时避免排序比较过程中无锁访问共享统计引发的数据竞争。
 		sort.SliceStable(hits, func(i, j int) bool {
-			pi := s.store.ReadHeat(hits[i].Document.ID)
-			pj := s.store.ReadHeat(hits[j].Document.ID)
+			pi := hits[i].ViewCount + hits[i].DownloadCount*3
+			pj := hits[j].ViewCount + hits[j].DownloadCount*3
 			return pi > pj
 		})
 	case model.SortByTime:
@@ -181,9 +181,8 @@ func (s *Service) PopularDocuments(limit int) ([]model.SearchHit, error) {
 	}
 	hits := make([]model.SearchHit, 0, len(docs))
 	for _, doc := range docs {
-		// 缺陷：热度排行同样通过无锁 GetStatsPtr 读取共享统计指针，
-		// 与并发浏览/下载自增之间缺少同步，可能读到撕裂的热度分量。
-		st := s.store.GetStatsPtr(doc.ID)
+		// 一次 GetStats 快照读取统计，与并发自增互斥，避免数据竞争与撕裂读。
+		st := s.store.GetStats(doc.ID)
 		hits = append(hits, model.SearchHit{
 			Document:      *doc,
 			Score:         0,
