@@ -100,6 +100,10 @@ func (s *Service) UpdateDocument(id string, req *model.Document) (*model.Documen
 }
 
 // DeleteDocument 删除文档，并清理其索引、统计与标签关联。
+//
+// store.DeleteDocument 内部会同步清理倒排索引：先清理索引，再删除文档，
+// 索引清理失败则中止删除以保持一致性。此处必须把底层返回的错误如实向上
+// 透传，否则即使清理失败、文档与索引残留，接口仍会谎报删除成功。
 func (s *Service) DeleteDocument(id string) error {
 	doc, err := s.store.GetDocument(id)
 	if err != nil {
@@ -114,8 +118,10 @@ func (s *Service) DeleteDocument(id string) error {
 	}
 
 	// 删除文档（store.DeleteDocument 内部会同步清理倒排索引）。
-	// BUG：忽略了删除/清理失败的错误，直接向上层报告成功，
-	// 导致删除接口返回成功，但文档与索引实际并未清理干净。
-	_ = s.store.DeleteDocument(id)
+	if err := s.store.DeleteDocument(id); err != nil {
+		return err
+	}
+	// 同步索引文档计数，保证与文档表一致。
+	s.store.SyncIndexDocCount()
 	return nil
 }

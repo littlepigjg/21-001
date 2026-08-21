@@ -77,12 +77,10 @@ func (s *Store) removeDocumentFromIndexLocked(docID string) error {
 		DocCount: s.index.DocCount,
 	}
 
-	removed := 0
 	for term, pl := range s.index.Terms {
 		out := make([]model.Posting, 0, len(pl.Postings))
 		for _, p := range pl.Postings {
 			if p.DocID == docID {
-				removed++
 				continue
 			}
 			out = append(out, p)
@@ -95,11 +93,14 @@ func (s *Store) removeDocumentFromIndexLocked(docID string) error {
 		next.Terms[term] = pl
 	}
 
-	// 提交前的一致性校验。
-	// BUG：校验条件写反了——只要确实移除了索引记录（removed > 0），
-	// 就误判为索引损坏并返回错误，导致新索引被丢弃、旧索引（仍含该文档）残留。
-	if removed > 0 {
-		return model.ErrStorage
+	// 提交前的一致性校验：确认新索引中不再残留目标文档的任何记录。
+	// 若仍残留则说明重建逻辑有误，放弃替换以避免留下含该文档的索引。
+	for _, pl := range next.Terms {
+		for _, p := range pl.Postings {
+			if p.DocID == docID {
+				return model.ErrStorage
+			}
+		}
 	}
 
 	s.index = next
