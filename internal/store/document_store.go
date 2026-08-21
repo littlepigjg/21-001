@@ -85,8 +85,10 @@ func (s *Store) ListDocumentsContext(ctx context.Context) ([]*model.Document, er
 		}
 		s.mu.RUnlock()
 
-		// 缺陷：这里检查了取消状态，却丢弃了返回的错误，未真正中断遍历。
-		_ = contextErr(ctx)
+		// 每完成一个批次即检查取消状态，取消时立即中断遍历并返回 ctx.Err()。
+		if err := contextErr(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	sort.SliceStable(docs, func(i, j int) bool {
