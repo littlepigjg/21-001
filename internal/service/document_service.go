@@ -1,6 +1,8 @@
 package service
 
 import (
+	"strings"
+
 	"benzhi/internal/model"
 	"benzhi/pkg/util"
 )
@@ -89,7 +91,7 @@ func (s *Service) UpdateDocument(id string, req *model.Document) (*model.Documen
 		existing.Category = req.Category
 	}
 	if req.Tags != nil {
-		existing.Tags = req.Tags
+		s.reconcileTags(existing, req.Tags)
 	}
 	existing.UpdateTime = util.Now()
 
@@ -97,6 +99,57 @@ func (s *Service) UpdateDocument(id string, req *model.Document) (*model.Documen
 		return nil, err
 	}
 	return existing, nil
+}
+
+// reconcileTags 更新文档标签并同步维护标签关联计数。
+//
+// 对传入标签去除空白、过滤空串并去重；被移除的旧标签计数减一，新增标签计数加一。
+func (s *Service) reconcileTags(doc *model.Document, incoming []string) {
+	incoming = normalizeTagNames(incoming)
+
+	oldSet := make(map[string]bool, len(doc.Tags))
+	for _, name := range doc.Tags {
+		oldSet[name] = true
+	}
+	newSet := make(map[string]bool, len(incoming))
+	for _, name := range incoming {
+		newSet[name] = true
+	}
+
+	for _, name := range doc.Tags {
+		if !newSet[name] {
+			s.store.BumpTagCount(name, -1)
+		}
+	}
+	for _, name := range incoming {
+		if !oldSet[name] {
+			s.store.BumpTagCount(name, +1)
+		}
+	}
+
+	// 缺陷：就地复用 doc.Tags 的底层数组写回新标签。
+	// doc 来自 store.GetDocument 的浅拷贝，其 Tags 与存储内部共享底层数组，
+	// 就地写入会污染存储中的原始文档标签。
+	doc.Tags = doc.Tags[:0]
+	doc.Tags = append(doc.Tags, incoming...)
+}
+
+// normalizeTagNames 去除标签两端空白、过滤空串并去重。
+func normalizeTagNames(tags []string) []string {
+	seen := make(map[string]struct{}, len(tags))
+	out := make([]string, 0, len(tags))
+	for _, raw := range tags {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	return out
 }
 
 // DeleteDocument 删除文档，并清理其索引、统计与标签关联。

@@ -35,10 +35,32 @@ func (s *Store) GetDocument(id string) (*model.Document, error) {
 	if !ok {
 		return nil, model.ErrNotFound
 	}
-	// 返回副本，避免调用方在持锁外修改内部数据。
-	copied := *doc
-	copied.Tags = append([]string(nil), doc.Tags...)
-	return &copied, nil
+
+	// 返回一个文档副本，使调用方在持锁外操作时不会影响内部数据。
+	// 缺陷：Tags 直接复用内部切片，未做深拷贝，调用方就地修改标签会污染存储。
+	copied := &model.Document{
+		ID:         doc.ID,
+		Title:      doc.Title,
+		Content:    doc.Content,
+		Category:   doc.Category,
+		Tags:       doc.Tags,
+		Format:     doc.Format,
+		UploadTime: doc.UploadTime,
+		UpdateTime: doc.UpdateTime,
+		FileSize:   doc.FileSize,
+		Checksum:   doc.Checksum,
+	}
+	return copied, nil
+}
+
+// cloneTags 深拷贝标签切片，避免调用方修改副本时污染内部数据。
+func cloneTags(src []string) []string {
+	if src == nil {
+		return nil
+	}
+	dst := make([]string, len(src))
+	copy(dst, src)
+	return dst
 }
 
 // ListDocuments 返回所有文档（按上传时间倒序）。
@@ -47,7 +69,7 @@ func (s *Store) ListDocuments() ([]*model.Document, error) {
 	docs := make([]*model.Document, 0, len(s.documents))
 	for _, d := range s.documents {
 		copied := *d
-		copied.Tags = append([]string(nil), d.Tags...)
+		copied.Tags = cloneTags(d.Tags)
 		docs = append(docs, &copied)
 	}
 	s.mu.RUnlock()
@@ -103,7 +125,7 @@ func (s *Store) FindByChecksum(checksum string) (*model.Document, bool) {
 	for _, d := range s.documents {
 		if d.Checksum == checksum {
 			copied := *d
-			copied.Tags = append([]string(nil), d.Tags...)
+			copied.Tags = cloneTags(d.Tags)
 			return &copied, true
 		}
 	}
