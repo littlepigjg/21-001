@@ -51,20 +51,9 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(rec, r)
 
 		// 观测限流器共享桶状态，便于监控。
-		// 注意：这里直接读取并遍历 apiLimiter.buckets，未持有任何锁，
-		// 与 rate_limiter.go 的 allow 写入、cleanupStale 删除并发时，
-		// 会触发 "concurrent map read and map write" / "concurrent map iteration and map write"。
-		ip := clientIP(r)
-		var left float64
-		if b := apiLimiter.buckets[ip]; b != nil {
-			left = b.tokens
-		}
-		active := 0
-		var totalTokens float64
-		for _, b := range apiLimiter.buckets {
-			active++
-			totalTokens += b.tokens
-		}
+		// 通过加锁的 snapshot 读取，避免与 allow 写入、cleanupStale 删除并发
+		// 触发 "concurrent map read and map write" / "concurrent map iteration and map write"。
+		left, active, totalTokens := apiLimiter.snapshot(clientIP(r))
 
 		logger.Info("http request",
 			"method", r.Method,

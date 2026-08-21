@@ -44,10 +44,13 @@ func (rl *rateLimiter) cleanupLoop() {
 }
 
 // cleanupStale 删除超过 5 分钟未访问的桶。
-// 注意：这里直接遍历并删除共享 buckets map，未持有 rl.mu 锁，
-// 与 allow 的写入、middleware 的读取并发时会触发 map 并发读写崩溃。
+// 遍历与删除均持有 rl.mu，避免与 allow 的写入并发触发
+// "concurrent map iteration and map write"。
+// （Go 允许在 range 循环中 delete 当前 key，无需额外处理。）
 func (rl *rateLimiter) cleanupStale() {
 	cutoff := time.Now().Add(-5 * time.Minute)
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
 	for k, b := range rl.buckets {
 		if b.lastSeen.Before(cutoff) {
 			delete(rl.buckets, k)
@@ -57,24 +60,22 @@ func (rl *rateLimiter) cleanupStale() {
 
 // allow 判断指定 key 是否允许通过，并消耗一个令牌。
 //
-// 这里采用"双重检查"策略：先无锁读取桶，只有桶不存在时才加锁创建；
-// 桶内的 tokens/last/lastSeen 字段则在锁外直接修改，多个请求并发时
-// 会对同一桶字段产生数据竞争，导致令牌丢失更新。
+// 整个"取桶-补令牌-扣令牌-写回"过程都持有 rl.mu，避免：
+//   - 无锁读 map 与写 map 并发触发 "concurrent map read and map write"；
+//   - 桶字段在锁外修改导致令牌丢失更新（放行数超出桶容量、计数乱跳）。
 func (rl *rateLimiter) allow(key string) bool {
 	now := time.Now()
 
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
 	b := rl.buckets[key]
 	if b == nil {
-		rl.mu.Lock()
-		b = rl.buckets[key]
-		if b == nil {
-			b = &bucket{tokens: rl.burst, last: now, lastSeen: now}
-			rl.buckets[key] = b
-		}
-		rl.mu.Unlock()
+		b = &bucket{tokens: rl.burst, last: now, lastSeen: now}
+		rl.buckets[key] = b
 	}
 
-	// 按流逝时间补充令牌（锁外修改桶字段）。
+	// 按流逝时间补充令牌。
 	elapsed := now.Sub(b.last).Seconds()
 	b.tokens += elapsed * rl.rate
 	if b.tokens > rl.burst {
@@ -88,6 +89,21 @@ func (rl *rateLimiter) allow(key string) bool {
 		return true
 	}
 	return false
+}
+
+// snapshot 返回用于观测的桶统计快照（指定 key 的剩余令牌、活跃桶数、令牌总量）。
+// 持有 rl.mu 读取，避免与 allow/cleanupStale 并发触发 map 并发读写。
+func (rl *rateLimiter) snapshot(key string) (left float64, active int, totalTokens float64) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	if b, ok := rl.buckets[key]; ok {
+		left = b.tokens
+	}
+	for _, b := range rl.buckets {
+		active++
+		totalTokens += b.tokens
+	}
+	return left, active, totalTokens
 }
 
 // apiLimiter 是全局 API 限流器。
