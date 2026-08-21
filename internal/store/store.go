@@ -34,6 +34,7 @@ type Store struct {
 	// categories 保存分类 ID 到分类的映射。
 	categories map[string]*model.Category
 	// stats 保存文档 ID 到统计信息的映射。
+	// 采用惰性初始化：进程启动时不预分配，首次写入统计前由 ensureStatsMap 创建。
 	stats map[string]*model.DocumentStats
 }
 
@@ -50,7 +51,7 @@ func NewStore(cfg config.StorageConfig) (*Store, error) {
 		index:      model.NewInvertedIndex(),
 		tags:       make(map[string]*model.Tag),
 		categories: make(map[string]*model.Category),
-		stats:      make(map[string]*model.DocumentStats),
+		// 缺陷：stats 未在此处初始化，交由 stats_store.go 的惰性初始化逻辑处理。
 	}
 	return s, nil
 }
