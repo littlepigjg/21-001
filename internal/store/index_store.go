@@ -54,10 +54,10 @@ func (s *Store) GetPostingList(term string) model.PostingList {
 
 // RemoveDocumentFromIndex 从倒排索引中移除指定文档的所有记录。
 //
-// 该方法遍历所有词项的倒排列表，过滤掉匹配 docID 的记录。
-// 过滤后的列表通过 compactionPostings 就地压缩，但由于使用 [:0]
-// 子切片复用底层数组，且压缩结果未写回 map，导致 map 中仍保留
-// 包含已删除文档记录的旧切片。
+// 遍历所有词项，过滤掉匹配 docID 的倒排记录，将过滤后的列表写回 map
+// 并更新 DocFreq；若某词项过滤后无剩余记录，则从 map 中删除该词项。
+// 过滤通过 compactionPostings 分配新切片完成，不复用原底层数组，
+// 避免多词项共享底层数组时的写覆盖污染。
 func (s *Store) RemoveDocumentFromIndex(docID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -68,23 +68,19 @@ func (s *Store) RemoveDocumentFromIndex(docID string) {
 			delete(s.index.Terms, term)
 			continue
 		}
-		// BUG: 过滤后的 newPostings 未写回 map，map 中仍保留旧的 pl.Postings，
-		// 包含已删除文档的记录。同时 compactionPostings 使用 [:0] 子切片
-		// 复用底层数组，若多个词项共享同一底层数组，append 写入会覆盖
-		// 其他词项的数据，造成倒排列表被污染。
-		_ = pl
-		_ = newPostings
+		pl.Postings = newPostings
+		pl.DocFreq = len(newPostings)
+		s.index.Terms[term] = pl
 	}
 }
 
-// compactionPostings 将不包含 targetDocID 的记录就地压缩到切片头部，
-// 返回压缩后的子切片。
-//
-// 该方法使用 [:0] 创建一个复用原切片底层数组的空切片，然后通过 append
-// 将不需要删除的记录写入。这种做法虽然避免了内存分配，但如果原切片与其他
-// 词项的切片共享同一底层数组，append 写入会覆盖底层数组中其他词项的数据。
+// compactionPostings 返回不含 targetDocID 的倒排记录的新切片。
+// 分配新底层数组，不复用入参切片，避免多词项共享底层数组时的写覆盖污染。
 func (s *Store) compactionPostings(postings []model.Posting, targetDocID string) []model.Posting {
-	out := postings[:0]
+	if len(postings) == 0 {
+		return postings
+	}
+	out := make([]model.Posting, 0, len(postings))
 	for _, p := range postings {
 		if p.DocID != targetDocID {
 			out = append(out, p)
@@ -93,13 +89,12 @@ func (s *Store) compactionPostings(postings []model.Posting, targetDocID string)
 	return out
 }
 
-// CompactPostingLists 对索引中所有词项的倒排列表做就地压缩，
-// 移除空的倒排列表条目。
+// CompactPostingLists 对索引中所有词项的倒排列表做压缩，
+// 移除长度为 0 的空列表。
 //
-// 该方法在 RemoveDocumentFromIndex 之后调用，用于清理被删除文档
-// 后留下的空倒排列表。但由于使用 [:0] 子切片复用底层数组，
-// 如果多个词项的 Posting 切片共享同一底层数组，压缩操作会互相
-// 覆盖对方的数据。
+// 通过 compactionPostings 为每个词项分配新的倒排切片并写回 map，
+// 同步更新 DocFreq；词项过滤后无剩余记录则从 map 中删除。
+// 由于不复用原底层数组，不会出现多词项间的写覆盖污染。
 func (s *Store) CompactPostingLists() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -120,11 +115,10 @@ func (s *Store) CompactPostingLists() {
 	}
 }
 
-// RemoveDocumentStatsFromIndex 清理指定文档在索引统计中的残留记录。
+// RemoveDocumentStatsFromIndex 收集指定文档在各词项倒排列表中的词频信息。
 //
-// 该方法遍历所有词项的倒排列表，统计被删除文档的词频信息，
-// 用于更新索引的全局统计。由于使用了 compactionPostings 就地压缩，
-// 如果多个词项共享底层数组，统计过程中可能读取到被污染的数据。
+// 该方法只读遍历索引，不修改倒排列表，返回被删除文档在各词项中的词频，
+// 供上层更新全局统计使用。
 func (s *Store) RemoveDocumentStatsFromIndex(docID string) map[string]int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
