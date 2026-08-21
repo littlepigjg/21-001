@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -22,10 +23,14 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		SortBy:   queryString(r, "sort_by", model.SortByRelevance),
 	}
 
-	result, err := h.svc.Search(req)
+	result, err := h.svc.Search(context.Background(), req)
 	if err != nil {
 		if errors.Is(err, model.ErrEmptyQuery) {
 			response.Error(w, response.CodeBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			response.Error(w, response.CodeInternal, "请求已取消")
 			return
 		}
 		response.Error(w, response.CodeInternal, err.Error())

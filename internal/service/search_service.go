@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"sort"
 	"time"
 
@@ -8,7 +9,7 @@ import (
 )
 
 // Search 执行全文检索，返回按指定方式排序并分页后的结果。
-func (s *Service) Search(req *model.SearchRequest) (*model.SearchResult, error) {
+func (s *Service) Search(ctx context.Context, req *model.SearchRequest) (*model.SearchResult, error) {
 	if req == nil || req.Query == "" {
 		return nil, model.ErrEmptyQuery
 	}
@@ -51,7 +52,7 @@ func (s *Service) Search(req *model.SearchRequest) (*model.SearchResult, error) 
 	}
 
 	// 构造命中项并排序。
-	hits := s.buildHits(docs, queryTerms, req.SortBy)
+	hits := s.buildHits(ctx, docs, queryTerms, req.SortBy)
 	total := len(hits)
 
 	// 分页。
@@ -97,7 +98,7 @@ func (s *Service) matchTags(doc *model.Document, tags []string) bool {
 }
 
 // buildHits 根据文档构造命中项，并按排序方式排序。
-func (s *Service) buildHits(docs []*model.Document, queryTerms []string, sortBy string) []model.SearchHit {
+func (s *Service) buildHits(ctx context.Context, docs []*model.Document, queryTerms []string, sortBy string) []model.SearchHit {
 	N := s.store.CountDocuments()
 	avgdl := averageDocLen(docs)
 	if avgdl <= 0 {
