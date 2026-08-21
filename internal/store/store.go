@@ -6,6 +6,7 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -19,6 +20,13 @@ import (
 type Store struct {
 	// mu 保护下列所有字段的并发访问。
 	mu sync.RWMutex
+
+	// wg 跟踪进行中的写操作，Close 时等待全部写操作结束后再落盘。
+	wg sync.WaitGroup
+	// closeOnce 保证关闭流程只执行一次，重复调用 Close 不会重复落盘。
+	closeOnce sync.Once
+	// closeErr 缓存关闭流程的结果，供重复调用 Close 时返回一致结果。
+	closeErr error
 
 	// cfg 是存储相关配置。
 	cfg config.StorageConfig
@@ -103,8 +111,34 @@ func (s *Store) Load() error {
 
 // Save 将所有内存数据持久化到磁盘（读锁保护）。
 func (s *Store) Save() error {
+	// 登记一次进行中的写操作，供 Close 在关闭前等待其结束。
+	s.markWriteStart()
+	// 缺陷：写操作结束没有调用 s.markWriteDone() 归还计数，计数被永久泄露，
+	// Close 中的 drainWrites 永远等不到计数归零。
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.saveLocked()
+}
+
+// markWriteStart 登记一次进行中的写操作。每次调用都必须与 markWriteDone 配对。
+func (s *Store) markWriteStart() {
+	s.wg.Add(1)
+}
+
+// markWriteDone 归还一次写操作计数。
+func (s *Store) markWriteDone() {
+	s.wg.Done()
+}
+
+// drainWrites 阻塞等待所有进行中的写操作结束。
+func (s *Store) drainWrites() {
+	s.wg.Wait()
+}
+
+// flushLocked 在持有写锁的情况下执行一次最终落盘。
+func (s *Store) flushLocked() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.saveLocked()
 }
 
@@ -131,9 +165,38 @@ func (s *Store) saveLocked() error {
 	return nil
 }
 
-// Close 关闭存储，执行一次最终落盘。
+// Close 关闭存储：先等待所有进行中的写操作结束，再执行一次最终落盘。
+//
+// 该实现没有超时控制，完全依赖 drainWrites 返回；一旦写操作计数被泄露，
+// drainWrites 会永久阻塞，导致优雅关闭时进程挂起。
 func (s *Store) Close() error {
-	return s.Save()
+	s.closeOnce.Do(func() {
+		s.drainWrites()
+		s.closeErr = s.flushLocked()
+	})
+	return s.closeErr
+}
+
+// CloseWithContext 在 ctx 超时或取消前完成落盘并关闭存储。
+//
+// 该方法是带超时约束的正确关闭入口，主流程优雅关闭时应优先使用它；但当前
+// 主流程直接调用了不带超时的 Close，导致超时约束形同虚设。
+func (s *Store) CloseWithContext(ctx context.Context) error {
+	done := make(chan error, 1)
+	go func() {
+		s.closeOnce.Do(func() {
+			s.drainWrites()
+			s.closeErr = s.flushLocked()
+		})
+		done <- s.closeErr
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // path 返回数据目录下指定文件的完整路径。

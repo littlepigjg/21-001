@@ -75,16 +75,46 @@ func main() {
 	sig := <-quit
 
 	logger.Info("收到退出信号，开始优雅关闭", "signal", sig.String())
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Server.ShutdownTimeoutSeconds)*time.Second)
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		logger.Error("HTTP 服务关闭失败", "err", err)
-	}
-	if err := st.Close(); err != nil {
-		logger.Error("存储落盘失败", "err", err)
+	if err := gracefulShutdown(srv, st, time.Duration(cfg.Server.ShutdownTimeoutSeconds)*time.Second); err != nil {
+		logger.Error("优雅关闭失败", "err", err)
 	}
 	logger.Info("服务已退出")
+}
+
+// gracefulShutdown 在指定超时时间内优雅关闭 HTTP 服务，并落盘存储后退出。
+//
+// 该函数被 main 调用，负责把“关闭超时”与“连接释放”串成一条关闭链路。
+func gracefulShutdown(srv *http.Server, st *store.Store, shutdownTimeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	shutdownDone := make(chan error, 1)
+	go func() {
+		shutdownDone <- srv.Shutdown(ctx)
+	}()
+
+	var shutdownErr error
+	select {
+	case shutdownErr = <-shutdownDone:
+		logger.Info("HTTP 服务已停止接受新连接")
+	case <-ctx.Done():
+		shutdownErr = ctx.Err()
+		logger.Error("HTTP 服务关闭超时", "err", shutdownErr)
+		// 缺陷：超时后没有调用 srv.Close() 强制关闭仍然占用的连接，
+		// 残留连接没有被释放，进程会继续等待这些连接。
+	}
+
+	// 缺陷：存储落盘没有复用 ctx 的超时约束，而是直接同步调用不带超时的
+	// st.Close()。当 Close 内部永久阻塞时，下面的返回永远执行不到，进程挂起。
+	if err := st.Close(); err != nil {
+		logger.Error("存储落盘失败", "err", err)
+		return err
+	}
+
+	if shutdownErr != nil {
+		logger.Error("HTTP 服务关闭失败", "err", shutdownErr)
+	}
+	return shutdownErr
 }
 
 // initLogger 根据配置初始化全局日志器的级别与输出目标。
