@@ -1,6 +1,8 @@
 package store
 
 import (
+	"fmt"
+
 	"benzhi/internal/model"
 	"benzhi/pkg/util"
 )
@@ -110,9 +112,81 @@ func (s *Store) ClearIndex() {
 	s.index.DocCount = 0
 }
 
+// SetFailIndexFlush 设置索引落盘故障注入开关（仅测试用）。
+//
+// 为 true 时，FlushIndex 会直接返回 model.ErrStorage，模拟索引文件无法写入、
+// 磁盘空间不足等持久化故障，便于上层业务在测试中复现索引构建失败路径。
+func (s *Store) SetFailIndexFlush(fail bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.failIndexFlush = fail
+}
+
+// BeginIndexBuild 开始一次索引构建：在持锁状态下将词项写入内存倒排索引。
+//
+// 与 AddPosting 不同，该方法面向“构建事务”语义，词项写入后需由上层调用
+// CommitIndexBuild 提交，或调用 RollbackIndexBuild 回滚。
+func (s *Store) BeginIndexBuild(docID string, positions map[string][]int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for term, pos := range positions {
+		s.addPostingLocked(term, docID, pos)
+	}
+}
+
+// CommitIndexBuild 提交索引构建：同步索引覆盖的文档计数并落盘。
+//
+// 落盘失败时返回错误，由上层决定是否回滚；本方法不会自动回滚。
+func (s *Store) CommitIndexBuild() error {
+	s.mu.Lock()
+	s.index.DocCount = len(s.documents)
+	s.mu.Unlock()
+
+	return s.FlushIndex()
+}
+
+// RollbackIndexBuild 回滚一次失败的索引构建：从内存倒排索引中移除该文档的词项。
+//
+// 缺陷：该方法只清理了词项，并且在恢复文档计数时使用了错误的计数来源——
+// 用“词项总数”而不是“文档总数”来重算 DocCount，导致内存索引 DocCount 与
+// 磁盘索引、文档表都不一致，形成“文档存在但索引缺失”的跨文件状态错位。
+func (s *Store) RollbackIndexBuild(docID string) {
+	s.RemoveDocumentFromIndex(docID)
+
+	// 缺陷：此处本应调用 SyncIndexDocCount（以文档表长度为准），
+	// 却错误地以词项数量覆盖了 DocCount。
+	s.mu.Lock()
+	s.index.DocCount = len(s.index.Terms)
+	s.mu.Unlock()
+}
+
+// IndexConsistency 返回索引与文档表之间的不一致描述（用于诊断与回归验证）。
+//
+// 在“索引构建失败但文档未回滚”的缺陷场景下，会出现文档表非空但倒排索引
+// 缺失、或索引文档计数与文档表总数不一致的情况，本方法用于暴露这些错位。
+func (s *Store) IndexConsistency() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var issues []string
+	docCount := len(s.documents)
+	if s.index.DocCount != docCount {
+		issues = append(issues, fmt.Sprintf("索引文档计数 %d 与文档表总数 %d 不一致", s.index.DocCount, docCount))
+	}
+	if docCount > 0 && len(s.index.Terms) == 0 {
+		issues = append(issues, "文档表非空但倒排索引为空")
+	}
+	return issues
+}
+
 // FlushIndex 仅将倒排索引落盘。
 func (s *Store) FlushIndex() error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
+	if s.failIndexFlush {
+		return model.ErrStorage
+	}
 	return util.SaveJSON(s.path(s.cfg.IndexFile), s.index)
 }

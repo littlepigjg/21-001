@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"benzhi/internal/model"
+	"benzhi/pkg/logger"
 	"benzhi/pkg/util"
 )
 
@@ -79,9 +80,12 @@ func (s *Service) UploadDocument(req *UploadRequest) (*model.UploadResult, error
 		}
 	}
 
-	terms, err := s.BuildIndex(created)
-	if err != nil {
-		return nil, err
+	// 缺陷：索引构建错误被上传主流程忽略。虽然下面会记录日志，
+	// 但既没有回滚已入库的文档，也没有向上层返回错误，导致
+	// “上传成功但检索不到”的文档与索引状态不一致问题。
+	terms, buildErr := s.BuildIndex(created)
+	if buildErr != nil {
+		s.logIndexBuildFailure(created, buildErr)
 	}
 
 	return &model.UploadResult{
@@ -89,6 +93,17 @@ func (s *Service) UploadDocument(req *UploadRequest) (*model.UploadResult, error
 		IndexedTerms: terms,
 		Duplicated:   false,
 	}, nil
+}
+
+// logIndexBuildFailure 记录索引构建失败日志。
+//
+// 缺陷：该函数只记录日志，既没有回滚已入库文档，也没有向上返回错误，
+// 使上传主流程在索引缺失的情况下仍对外表现为成功。
+func (s *Service) logIndexBuildFailure(doc *model.Document, err error) {
+	if doc == nil || err == nil {
+		return
+	}
+	logger.Error("文档已入库但索引构建失败", "doc_id", doc.ID, "err", err.Error())
 }
 
 // isFormatAllowed 判断格式是否在配置允许列表内。

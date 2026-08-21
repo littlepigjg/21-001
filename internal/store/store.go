@@ -35,6 +35,10 @@ type Store struct {
 	categories map[string]*model.Category
 	// stats 保存文档 ID 到统计信息的映射。
 	stats map[string]*model.DocumentStats
+
+	// failIndexFlush 仅用于测试：为 true 时 FlushIndex 直接返回错误，
+	// 用于模拟索引持久化失败（磁盘故障、权限不足等）场景。
+	failIndexFlush bool
 }
 
 // NewStore 创建一个新的 Store 实例，并确保数据目录存在。

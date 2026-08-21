@@ -13,21 +13,32 @@ func (s *Service) BuildIndex(doc *model.Document) (int, error) {
 	}
 
 	// 分词并记录每个词项的出现位置。
-	tokens := s.tokenizer.Tokenize(doc.Content)
+	positions := s.tokenizePositions(doc.Content)
+	if len(positions) == 0 {
+		return 0, nil
+	}
+
+	// 开启索引构建事务：先将词项写入内存倒排索引。
+	s.store.BeginIndexBuild(doc.ID, positions)
+
+	// 提交事务：同步文档计数并落盘。
+	if err := s.store.CommitIndexBuild(); err != nil {
+		// 缺陷：落盘失败后回滚内存索引，但 store.RollbackIndexBuild 只移除词项、
+		// 未恢复文档计数，导致内存与磁盘索引状态不一致。
+		s.store.RollbackIndexBuild(doc.ID)
+		return 0, err
+	}
+	return len(positions), nil
+}
+
+// tokenizePositions 对正文分词并聚合每个词项的出现位置。
+func (s *Service) tokenizePositions(content string) map[string][]int {
+	tokens := s.tokenizer.Tokenize(content)
 	positions := make(map[string][]int)
 	for i, tok := range tokens {
 		positions[tok] = append(positions[tok], i)
 	}
-
-	for term, pos := range positions {
-		s.store.AddPosting(term, doc.ID, pos)
-	}
-
-	s.store.SyncIndexDocCount()
-	if err := s.store.FlushIndex(); err != nil {
-		return 0, err
-	}
-	return len(positions), nil
+	return positions
 }
 
 // RemoveIndex 从索引中移除文档（文档删除时调用）。
