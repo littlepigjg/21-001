@@ -16,6 +16,7 @@ func (h *Handler) SearchAdvanced(w http.ResponseWriter, r *http.Request) {
 
 	req := &model.SearchRequest{
 		Query:    pq.CombineQuery(),
+		Phrase:   pq.Phrase,
 		Category: pq.Category,
 		Tags:     pq.Tags,
 		Page:     queryInt(r, "page", 1),

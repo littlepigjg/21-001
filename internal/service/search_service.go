@@ -23,6 +23,12 @@ func (s *Service) Search(req *model.SearchRequest) (*model.SearchResult, error) 
 
 	// 收集候选文档 ID（取各查询词倒排列表的并集）。
 	candidates := s.collectCandidates(queryTerms)
+
+	// 短语检索：要求词项按顺序连续出现（基于倒排位置做邻近匹配）。
+	if req.Phrase != "" {
+		candidates = s.filterPhrase(candidates, s.analyzeQuery(req.Phrase))
+	}
+
 	if len(candidates) == 0 {
 		return &model.SearchResult{
 			Query:    req.Query,
@@ -81,6 +87,68 @@ func (s *Service) collectCandidates(queryTerms []string) []string {
 		}
 	}
 	return order
+}
+
+// filterPhrase 仅保留查询词项按顺序连续出现的文档。
+func (s *Service) filterPhrase(docIDs []string, terms []string) []string {
+	if len(terms) < 2 {
+		return docIDs
+	}
+	out := make([]string, 0, len(docIDs))
+	for _, id := range docIDs {
+		if s.phraseMatches(id, terms) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// phraseMatches 判断文档中 terms 是否按顺序连续出现。
+func (s *Service) phraseMatches(docID string, terms []string) bool {
+	posLists := make([][]int, len(terms))
+	for i, term := range terms {
+		pl := s.store.GetPostingList(term)
+		found := false
+		for _, p := range pl.Postings {
+			if p.DocID == docID {
+				posLists[i] = p.Positions
+				found = true
+				break
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+
+	for _, start := range posLists[0] {
+		if matchPhraseChain(posLists, start) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchPhraseChain 从 start 开始判断后续词项是否位置连续递增。
+func matchPhraseChain(posLists [][]int, start int) bool {
+	cur := start
+	for j := 1; j < len(posLists); j++ {
+		cur++
+		if !containsPosition(posLists[j], cur) {
+			return false
+		}
+	}
+	return true
+}
+
+// containsPosition 判断位置切片中是否包含指定位置。
+func containsPosition(list []int, pos int) bool {
+	for _, v := range list {
+		if v == pos {
+			return true
+		}
+	}
+	return false
 }
 
 // matchTags 判断文档是否满足标签过滤条件（要求包含全部指定标签）。

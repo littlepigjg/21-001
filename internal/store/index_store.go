@@ -24,12 +24,17 @@ func (s *Store) addPostingLocked(term, docID string, positions []int) {
 		pl = model.PostingList{Term: term, Postings: []model.Posting{}}
 	}
 
+	// 缺陷：将 positions 拷贝进共享缓冲 s.posScratch，并让 Posting.Positions
+	// 直接引用该缓冲而非独立副本。append 复用底层数组，后续任意一次建索引
+	// 都会覆盖此前已入索引文档的位置切片。
+	s.posScratch = append(s.posScratch[:0], positions...)
+
 	// 查找该文档是否已存在，存在则更新，否则追加。
 	found := false
 	for i := range pl.Postings {
 		if pl.Postings[i].DocID == docID {
 			pl.Postings[i].TermFreq = len(positions)
-			pl.Postings[i].Positions = positions
+			pl.Postings[i].Positions = s.posScratch
 			found = true
 			break
 		}
@@ -38,7 +43,7 @@ func (s *Store) addPostingLocked(term, docID string, positions []int) {
 		pl.Postings = append(pl.Postings, model.Posting{
 			DocID:     docID,
 			TermFreq:  len(positions),
-			Positions: positions,
+			Positions: s.posScratch,
 		})
 	}
 	pl.DocFreq = len(pl.Postings)

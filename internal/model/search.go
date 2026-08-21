@@ -4,6 +4,8 @@ package model
 type SearchRequest struct {
 	// Query 是检索关键词，支持空格分隔的多个关键词。
 	Query string `json:"query"`
+	// Phrase 是可选短语，非空时要求查询词项在文档中按顺序连续出现。
+	Phrase string `json:"phrase,omitempty"`
 	// Category 是可选分类过滤条件，为空表示不过滤。
 	Category string `json:"category"`
 	// Tags 是可选标签过滤条件，为空表示不过滤。
