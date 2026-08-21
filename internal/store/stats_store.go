@@ -14,14 +14,41 @@ func (s *Store) EnsureStats(docID string) {
 	}
 }
 
-// GetStats 返回指定文档的统计信息。不存在时返回零值统计。
-func (s *Store) GetStats(docID string) model.DocumentStats {
+// GetStats 返回指定文档的统计信息。不存在时返回 nil。
+func (s *Store) GetStats(docID string) *model.DocumentStats {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if st, ok := s.stats[docID]; ok {
-		return *st
+		return st
 	}
-	return model.DocumentStats{DocID: docID}
+	return nil
+}
+
+// HasStats 判断指定文档是否已存在统计记录。
+func (s *Store) HasStats(docID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, ok := s.stats[docID]
+	return ok
+}
+
+// SnapshotStats 一次性返回多个文档 ID 的统计快照。
+//
+// 为了与 GetStats 保持一致的返回语义，对于缺少统计记录的文档 ID，
+// 结果 map 中会保留一个值为 nil 的条目，由调用方自行兜底处理。
+func (s *Store) SnapshotStats(ids []string) map[string]*model.DocumentStats {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	out := make(map[string]*model.DocumentStats, len(ids))
+	for _, id := range ids {
+		if st, ok := s.stats[id]; ok {
+			out[id] = st
+		} else {
+			out[id] = nil
+		}
+	}
+	return out
 }
 
 // IncrementView 增加指定文档的浏览次数。

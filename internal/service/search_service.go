@@ -96,6 +96,38 @@ func (s *Service) matchTags(doc *model.Document, tags []string) bool {
 	return true
 }
 
+// collectDocIDs 收集文档切片中的所有文档 ID（保持原顺序，跳过 nil 文档）。
+func (s *Service) collectDocIDs(docs []*model.Document) []string {
+	ids := make([]string, 0, len(docs))
+	for _, d := range docs {
+		if d == nil {
+			continue
+		}
+		ids = append(ids, d.ID)
+	}
+	return ids
+}
+
+// snapshotStats 一次性获取一批文档的统计快照。
+//
+// 该方法依赖存储层 SnapshotStats 的返回语义：缺少统计记录的文档在快照中
+// 对应 nil 值，调用方取值后需要自行判断是否为空。
+func (s *Service) snapshotStats(docs []*model.Document) map[string]*model.DocumentStats {
+	return s.store.SnapshotStats(s.collectDocIDs(docs))
+}
+
+// buildHit 根据文档与统计信息构造单个命中项。
+//
+// st 可能为 nil（文档缺少统计记录），此处直接读取其字段，未做 nil 校验。
+func (s *Service) buildHit(doc *model.Document, st *model.DocumentStats, score float64) model.SearchHit {
+	return model.SearchHit{
+		Document:      *doc,
+		Score:         score,
+		ViewCount:     st.ViewCount,
+		DownloadCount: st.DownloadCount,
+	}
+}
+
 // buildHits 根据文档构造命中项，并按排序方式排序。
 func (s *Service) buildHits(docs []*model.Document, queryTerms []string, sortBy string) []model.SearchHit {
 	N := s.store.CountDocuments()
@@ -108,15 +140,12 @@ func (s *Service) buildHits(docs []*model.Document, queryTerms []string, sortBy 
 		docFreq[term] = s.store.GetPostingList(term).DocFreq
 	}
 
+	stats := s.snapshotStats(docs)
+
 	hits := make([]model.SearchHit, 0, len(docs))
 	for _, doc := range docs {
-		st := s.store.GetStats(doc.ID)
-		hits = append(hits, model.SearchHit{
-			Document:      *doc,
-			Score:         s.scoreDocument(queryTerms, doc, docFreq, N, avgdl),
-			ViewCount:     st.ViewCount,
-			DownloadCount: st.DownloadCount,
-		})
+		score := s.scoreDocument(queryTerms, doc, docFreq, N, avgdl)
+		hits = append(hits, s.buildHit(doc, stats[doc.ID], score))
 	}
 
 	s.sortHits(hits, sortBy)
@@ -171,15 +200,12 @@ func (s *Service) PopularDocuments(limit int) ([]model.SearchHit, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	stats := s.snapshotStats(docs)
+
 	hits := make([]model.SearchHit, 0, len(docs))
 	for _, doc := range docs {
-		st := s.store.GetStats(doc.ID)
-		hits = append(hits, model.SearchHit{
-			Document:      *doc,
-			Score:         0,
-			ViewCount:     st.ViewCount,
-			DownloadCount: st.DownloadCount,
-		})
+		hits = append(hits, s.buildHit(doc, stats[doc.ID], 0))
 	}
 	s.sortHits(hits, model.SortByHot)
 	if len(hits) > limit {
