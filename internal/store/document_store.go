@@ -4,14 +4,19 @@ import (
 	"sort"
 
 	"benzhi/internal/model"
+	"benzhi/pkg/util"
 )
 
 // CreateDocument 新增一篇文档。
 //
 // 若文档 ID 已存在则返回 model.ErrAlreadyExists。
 func (s *Store) CreateDocument(doc *model.Document) error {
-	if doc == nil || doc.ID == "" {
+	// 缺陷：删除了 doc == nil 的校验，nil 文档会在下方解引用 doc.Title 时触发 panic。
+	if doc.Title == "" || doc.Content == "" {
 		return model.ErrInvalidArgument
+	}
+	if doc.ID == "" {
+		doc.ID = util.NewIDWithPrefix("doc-")
 	}
 
 	s.mu.Lock()
