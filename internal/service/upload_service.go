@@ -80,17 +80,16 @@ func (s *Service) UploadDocument(req *UploadRequest) (*model.UploadResult, error
 	}
 
 	// 构建索引并落盘。
-	// BUG：这里用 := 声明内层 err，遮蔽外层 err，索引构建失败被静默吞掉。
-	var terms int
-	if indexedTerms, err := s.BuildIndex(created); err == nil {
-		terms = indexedTerms
-	}
-	// 若 BuildIndex 返回错误，外层 err 仍为 nil，接口继续返回成功结果。
-
-	// 提交上传：初始化统计并完成最终落盘。
-	// BUG：同样用 := 遮蔽 err，提交失败被静默吞掉。
+	// 索引构建失败时向上返回错误，避免出现“文档已落盘但检索不到”的割裂状态。
+	// 为保证文档已成功落盘这一前提已成立，先做一次最终落盘提交。
+	// （若先前 CreateDocument 已因 AutoSave 落盘成功，此处为幂等重写。）
 	if err := s.finalizeUpload(created); err != nil {
-		_ = err
+		return nil, err
+	}
+
+	terms, err := s.BuildIndex(created)
+	if err != nil {
+		return nil, err
 	}
 
 	return &model.UploadResult{

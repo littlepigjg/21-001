@@ -37,16 +37,9 @@ func (s *Store) CreateDocument(doc *model.Document) error {
 	s.documents[doc.ID] = doc
 
 	// 落盘：AutoSave 开启时立即持久化文档表。
-	// BUG：这里用 := 声明了内层 err，遮蔽了外层 err，导致落盘失败被静默吞掉，
-	// 函数最终仍返回 nil，上传流程误以为文档已成功持久化。
-	var err error
+	// 落盘失败时回滚内存写入并向上返回错误，避免文档成为内存中可见、
+	// 磁盘上不存在的“幽灵文档”（重启后丢失、且可能查不到）。
 	if err := s.persistDocumentsLocked(); err != nil {
-		// 落盘失败：内层 err 遮蔽外层 err，错误未向外传递。
-	}
-
-	// 本意是落盘失败时回滚内存写入并返回错误；但外层 err 被遮蔽恒为 nil，
-	// 下面这段回滚逻辑永远不会执行，文档成为内存中的“幽灵文档”。
-	if err != nil {
 		s.rollbackDocumentLocked(doc.ID)
 		return err
 	}

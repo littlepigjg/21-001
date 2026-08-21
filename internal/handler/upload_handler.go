@@ -61,9 +61,10 @@ func (h *Handler) UploadDocument(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 上传成功后做一次最终落盘提交，确保数据已可靠写入磁盘。
-	// BUG：这里用 := 声明内层 err，遮蔽外层 err，最终落盘失败被吞掉，接口仍返回成功。
+	// 落盘失败直接返回错误，避免接口返回成功而磁盘上没有数据。
 	if err := h.svc.Store().Save(); err != nil {
-		_ = err
+		response.Error(w, response.CodeInternal, "落盘失败: "+err.Error())
+		return
 	}
 
 	response.Created(w, result)
