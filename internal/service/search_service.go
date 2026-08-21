@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"benzhi/internal/model"
+	"benzhi/pkg/util"
 )
 
 // Search 执行全文检索，返回按指定方式排序并分页后的结果。
@@ -145,21 +146,10 @@ func (s *Service) sortHits(hits []model.SearchHit, sortBy string) {
 
 // paginate 对命中列表做分页切片。
 func (s *Service) paginate(hits []model.SearchHit, page, pageSize int) []model.SearchHit {
-	if page <= 0 {
-		page = 1
-	}
-	if pageSize <= 0 {
-		pageSize = s.cfg.Search.DefaultPageSize
-	}
-	start := (page - 1) * pageSize
-	if start > len(hits) {
-		start = len(hits)
-	}
-	end := start + pageSize
-	if end > len(hits) {
-		end = len(hits)
-	}
-	return hits[start:end]
+	q := util.NewPageQuery(page, pageSize, s.cfg.Search.DefaultPageSize)
+	q.Normalize(s.cfg.Search.DefaultPageSize, s.cfg.Search.MaxPageSize)
+	w := q.Window(len(hits))
+	return hits[w.Start:w.End]
 }
 
 // PopularDocuments 返回按热度排序的文档列表。

@@ -17,7 +17,7 @@ func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
 		Query:    queryString(r, "q", ""),
 		Category: queryString(r, "category", ""),
 		Tags:     util.SplitAndTrim(queryString(r, "tags", "")),
-		Page:     queryInt(r, "page", 1),
+		Page:     normalizePage(queryInt(r, "page", 1)),
 		PageSize: queryInt(r, "page_size", 0),
 		SortBy:   queryString(r, "sort_by", model.SortByRelevance),
 	}

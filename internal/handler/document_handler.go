@@ -26,7 +26,7 @@ type updateDocumentRequest struct {
 
 // ListDocuments 处理 GET /api/documents，分页返回文档列表。
 func (h *Handler) ListDocuments(w http.ResponseWriter, r *http.Request) {
-	page := queryInt(r, "page", 1)
+	page := normalizePage(queryInt(r, "page", 1))
 	pageSize := queryInt(r, "page_size", 0)
 
 	docs, total, err := h.svc.ListDocuments(page, pageSize)

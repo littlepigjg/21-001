@@ -31,3 +31,13 @@ func queryString(r *http.Request, key, def string) string {
 func pathValue(r *http.Request, key string) string {
 	return r.PathValue(key)
 }
+
+// normalizePage 规范化页码：仅处理非正数，不做页码上限校验。
+//
+// 超大页码的封顶依赖 service 层分页窗口，handler 侧不重复判断。
+func normalizePage(page int) int {
+	if page <= 0 {
+		return 1
+	}
+	return page
+}

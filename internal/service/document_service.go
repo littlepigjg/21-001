@@ -45,15 +45,8 @@ func (s *Service) GetDocument(id string) (*model.Document, error) {
 
 // ListDocuments 分页返回文档列表（按上传时间倒序）。
 func (s *Service) ListDocuments(page, pageSize int) ([]*model.Document, int, error) {
-	if page <= 0 {
-		page = 1
-	}
-	if pageSize <= 0 {
-		pageSize = s.cfg.Search.DefaultPageSize
-	}
-	if pageSize > s.cfg.Search.MaxPageSize {
-		pageSize = s.cfg.Search.MaxPageSize
-	}
+	q := util.NewPageQuery(page, pageSize, s.cfg.Search.DefaultPageSize)
+	q.Normalize(s.cfg.Search.DefaultPageSize, s.cfg.Search.MaxPageSize)
 
 	docs, err := s.store.ListDocuments()
 	if err != nil {
@@ -61,15 +54,8 @@ func (s *Service) ListDocuments(page, pageSize int) ([]*model.Document, int, err
 	}
 
 	total := len(docs)
-	start := (page - 1) * pageSize
-	if start > total {
-		start = total
-	}
-	end := start + pageSize
-	if end > total {
-		end = total
-	}
-	return docs[start:end], total, nil
+	w := q.Window(total)
+	return docs[w.Start:w.End], total, nil
 }
 
 // UpdateDocument 更新文档元数据（标题、分类、标签）。
