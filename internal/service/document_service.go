@@ -127,11 +127,12 @@ func (s *Service) reconcileTags(doc *model.Document, incoming []string) {
 		}
 	}
 
-	// 缺陷：就地复用 doc.Tags 的底层数组写回新标签。
-	// doc 来自 store.GetDocument 的浅拷贝，其 Tags 与存储内部共享底层数组，
-	// 就地写入会污染存储中的原始文档标签。
-	doc.Tags = doc.Tags[:0]
-	doc.Tags = append(doc.Tags, incoming...)
+	// 赋值全新的标签切片，避免复用 doc.Tags 底层数组造成意外的就地写入。
+	// incoming 来自 normalizeTagNames 的独立切片，这里拷贝一份后挂回 doc，
+	// 保证 doc 与 incoming、与调用方传入的切片互不共享底层数组。
+	tags := make([]string, len(incoming))
+	copy(tags, incoming)
+	doc.Tags = tags
 }
 
 // normalizeTagNames 去除标签两端空白、过滤空串并去重。

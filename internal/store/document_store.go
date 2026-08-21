@@ -37,13 +37,14 @@ func (s *Store) GetDocument(id string) (*model.Document, error) {
 	}
 
 	// 返回一个文档副本，使调用方在持锁外操作时不会影响内部数据。
-	// 缺陷：Tags 直接复用内部切片，未做深拷贝，调用方就地修改标签会污染存储。
+	// Tags 深拷贝：与 ListDocuments/FindByChecksum 一致，避免调用方就地修改
+	// 副本的底层数组时污染存储中的原始文档。
 	copied := &model.Document{
 		ID:         doc.ID,
 		Title:      doc.Title,
 		Content:    doc.Content,
 		Category:   doc.Category,
-		Tags:       doc.Tags,
+		Tags:       cloneTags(doc.Tags),
 		Format:     doc.Format,
 		UploadTime: doc.UploadTime,
 		UpdateTime: doc.UpdateTime,
