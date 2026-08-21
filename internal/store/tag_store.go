@@ -44,8 +44,7 @@ func (s *Store) ListTags() ([]*model.Tag, error) {
 
 // TagLookup 抽象按名称查询标签的结果。
 //
-// 使用接口作为返回类型，是为了向上层隐藏具体存储实现；未命中时返回一个
-// “非 nil 但内容为空”的 TagLookup，调用方需要自行判断结果是否可用。
+// 使用接口作为返回类型，是为了向上层隐藏具体存储实现；未命中时返回 nil。
 type TagLookup interface {
 	// GetName 返回标签名称。
 	GetName() string
@@ -71,7 +70,11 @@ type TagRepository interface {
 	BumpTagCount(name string, delta int)
 }
 
-// GetTagByName 按名称返回标签。未命中时返回空的 TagLookup 结果。
+// GetTagByName 按名称返回标签。未命中时返回 nil。
+//
+// 注意：必须返回裸 nil，而非类型化的 (*model.Tag)(nil)。
+// 类型化 nil 被包装进 TagLookup 接口后，与 nil 比较结果为假，调用方
+// （EnsureTag 的 `lookup != nil`）会误以为查到了真实标签，从而跳过创建。
 func (s *Store) GetTagByName(name string) TagLookup {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -82,10 +85,7 @@ func (s *Store) GetTagByName(name string) TagLookup {
 			return &copied
 		}
 	}
-	// 返回类型化 nil 指针（*model.Tag），它被包装进 TagLookup 接口后与 nil
-	// 比较为假，调用方会误以为查询到了真实标签。
-	var t *model.Tag
-	return t
+	return nil
 }
 
 // GetTagByID 按 ID 返回标签。
