@@ -48,9 +48,11 @@ func (s *Store) ResetStats() {
 
 // ensureEntryLocked 在已持有写锁的情况下确保文档统计记录存在，返回记录指针。
 //
-// 缺陷：本方法直接向 s.stats 写入，却没有先调用 ensureStatsMap 初始化底层
-// map。当 stats 为 nil 且该文档尚无记录时，s.stats[docID] = st 会 panic。
+// 调用前先经 ensureStatsMap 完成 stats 底层 map 的惰性初始化，避免 stats
+// 为 nil 时 s.stats[docID] = st 触发 "assignment to entry in nil map" panic。
+// 本方法在调用方已持有 s.mu 写锁时使用，ensureStatsMap 因此无需再自行加锁。
 func (s *Store) ensureEntryLocked(docID string) *model.DocumentStats {
+	s.ensureStatsMap()
 	st, ok := s.stats[docID]
 	if !ok {
 		st = &model.DocumentStats{DocID: docID}
@@ -59,9 +61,8 @@ func (s *Store) ensureEntryLocked(docID string) *model.DocumentStats {
 	return st
 }
 
-// EnsureStats 确保指定文档存在统计记录，不存在则创建。
-//
-// 缺陷：与 ensureEntryLocked 相同，未初始化底层 map，新文档首次调用时 panic。
+// EnsureStats 确保指定文档存在统计记录，不存在则创建。统计 map 经
+// ensureEntryLocked 内的 ensureStatsMap 惰性初始化，nil map 写入已防护。
 func (s *Store) EnsureStats(docID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -80,8 +81,8 @@ func (s *Store) GetStats(docID string) model.DocumentStats {
 
 // IncrementView 增加指定文档的浏览次数。
 //
-// 缺陷：未调用 ensureStatsMap，直接通过 ensureEntryLocked 写入 stats。
-// 新文档首次浏览时 stats 仍为 nil，写入 map 触发 panic。
+// 经 ensureEntryLocked 完成统计 map 的惰性初始化并补建记录，nil map 写入已
+// 防护；新文档首次浏览时正常自增 ViewCount 并更新 LastViewTime。
 func (s *Store) IncrementView(docID string) model.DocumentStats {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -93,9 +94,8 @@ func (s *Store) IncrementView(docID string) model.DocumentStats {
 	return *st
 }
 
-// IncrementDownload 增加指定文档的下载次数。
-//
-// 缺陷：与 IncrementView 相同，未初始化 stats 直接写入。
+// IncrementDownload 增加指定文档的下载次数。经 ensureEntryLocked 惰性初始化
+// 统计 map 并补建记录，nil map 写入已防护。
 func (s *Store) IncrementDownload(docID string) model.DocumentStats {
 	s.mu.Lock()
 	defer s.mu.Unlock()
