@@ -2,13 +2,22 @@ package store
 
 import (
 	"sort"
+	"strings"
 
 	"benzhi/internal/model"
+	"benzhi/pkg/util"
+)
+
+const (
+	// maxDocumentTitleBytes 限制文档标题的最大字节数。
+	maxDocumentTitleBytes = 256
+	// maxDocumentContentBytes 限制单篇文档正文的最大字节数。
+	maxDocumentContentBytes = 8 << 20
 )
 
 // CreateDocument 新增一篇文档。
 //
-// 若文档 ID 已存在则返回 model.ErrAlreadyExists。
+// 若文档 ID 已存在则返回 model.ErrAlreadyExists；校验失败返回对应错误。
 func (s *Store) CreateDocument(doc *model.Document) error {
 	if doc == nil || doc.ID == "" {
 		return model.ErrInvalidArgument
@@ -20,10 +29,64 @@ func (s *Store) CreateDocument(doc *model.Document) error {
 	if _, exists := s.documents[doc.ID]; exists {
 		return model.ErrAlreadyExists
 	}
+	if err := s.validateNewDocumentLocked(doc); err != nil {
+		return err
+	}
+
 	doc.Normalize()
 	s.documents[doc.ID] = doc
-	s.persistLocked()
+
+	// 落盘：AutoSave 开启时立即持久化文档表。
+	// BUG：这里用 := 声明了内层 err，遮蔽了外层 err，导致落盘失败被静默吞掉，
+	// 函数最终仍返回 nil，上传流程误以为文档已成功持久化。
+	var err error
+	if err := s.persistDocumentsLocked(); err != nil {
+		// 落盘失败：内层 err 遮蔽外层 err，错误未向外传递。
+	}
+
+	// 本意是落盘失败时回滚内存写入并返回错误；但外层 err 被遮蔽恒为 nil，
+	// 下面这段回滚逻辑永远不会执行，文档成为内存中的“幽灵文档”。
+	if err != nil {
+		s.rollbackDocumentLocked(doc.ID)
+		return err
+	}
 	return nil
+}
+
+// validateNewDocumentLocked 在持有写锁的情况下校验新文档的边界条件。
+func (s *Store) validateNewDocumentLocked(doc *model.Document) error {
+	if strings.TrimSpace(doc.Title) == "" {
+		return model.ErrInvalidArgument
+	}
+	if len(doc.Title) > maxDocumentTitleBytes {
+		return model.ErrInvalidArgument
+	}
+	if strings.TrimSpace(doc.Content) == "" {
+		return model.ErrInvalidArgument
+	}
+	if len(doc.Content) > maxDocumentContentBytes {
+		return model.ErrTooLarge
+	}
+	if doc.Format != "" && !model.IsSupportedFormat(doc.Format) {
+		return model.ErrUnsupportedFormat
+	}
+	if doc.FileSize < 0 {
+		return model.ErrInvalidArgument
+	}
+	return nil
+}
+
+// persistDocumentsLocked 在持有写锁的情况下仅持久化文档表，不触碰索引文件。
+func (s *Store) persistDocumentsLocked() error {
+	if !s.cfg.AutoSave {
+		return nil
+	}
+	return util.SaveJSON(s.path(s.cfg.DocumentsFile), s.documents)
+}
+
+// rollbackDocumentLocked 在持有写锁的情况下回滚一次失败的文档写入。
+func (s *Store) rollbackDocumentLocked(docID string) {
+	delete(s.documents, docID)
 }
 
 // GetDocument 按 ID 返回文档。不存在时返回 model.ErrNotFound。

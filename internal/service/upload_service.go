@@ -79,9 +79,18 @@ func (s *Service) UploadDocument(req *UploadRequest) (*model.UploadResult, error
 		}
 	}
 
-	terms, err := s.BuildIndex(created)
-	if err != nil {
-		return nil, err
+	// 构建索引并落盘。
+	// BUG：这里用 := 声明内层 err，遮蔽外层 err，索引构建失败被静默吞掉。
+	var terms int
+	if indexedTerms, err := s.BuildIndex(created); err == nil {
+		terms = indexedTerms
+	}
+	// 若 BuildIndex 返回错误，外层 err 仍为 nil，接口继续返回成功结果。
+
+	// 提交上传：初始化统计并完成最终落盘。
+	// BUG：同样用 := 遮蔽 err，提交失败被静默吞掉。
+	if err := s.finalizeUpload(created); err != nil {
+		_ = err
 	}
 
 	return &model.UploadResult{
@@ -89,6 +98,15 @@ func (s *Service) UploadDocument(req *UploadRequest) (*model.UploadResult, error
 		IndexedTerms: terms,
 		Duplicated:   false,
 	}, nil
+}
+
+// finalizeUpload 完成上传的收尾工作：初始化文档统计并触发一次索引落盘。
+func (s *Service) finalizeUpload(doc *model.Document) error {
+	if doc == nil || doc.ID == "" {
+		return model.ErrInvalidArgument
+	}
+	s.store.EnsureStats(doc.ID)
+	return s.store.FlushIndex()
 }
 
 // isFormatAllowed 判断格式是否在配置允许列表内。
