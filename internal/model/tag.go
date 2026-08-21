@@ -20,3 +20,22 @@ func (t *Tag) Normalize() {
 		t.Count = 0
 	}
 }
+
+// GetName 返回标签名称；接收者为 nil 时返回空字符串。
+//
+// 该方法让 *Tag 可以作为标签查询结果接口（TagLookup）返回，nil 接收者
+// 场景下避免直接解引用造成 panic。
+func (t *Tag) GetName() string {
+	if t == nil {
+		return ""
+	}
+	return t.Name
+}
+
+// GetID 返回标签 ID；接收者为 nil 时返回空字符串。
+func (t *Tag) GetID() string {
+	if t == nil {
+		return ""
+	}
+	return t.ID
+}

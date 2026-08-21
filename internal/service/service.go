@@ -13,8 +13,10 @@ import (
 
 // Service 是业务逻辑层的核心结构，聚合依赖的基础组件。
 type Service struct {
-	// store 是底层存储。
+	// store 是底层存储（文档、索引、分类、统计等）。
 	store *store.Store
+	// tagRepo 是标签存储的抽象接口，供标签相关业务使用。
+	tagRepo store.TagRepository
 	// cfg 是应用配置。
 	cfg config.Config
 	// tokenizer 是文本分词器。
@@ -25,6 +27,7 @@ type Service struct {
 func New(st *store.Store, cfg config.Config) *Service {
 	return &Service{
 		store:     st,
+		tagRepo:   st,
 		cfg:       cfg,
 		tokenizer: tokenizer.New(),
 	}

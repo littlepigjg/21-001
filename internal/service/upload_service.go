@@ -68,15 +68,14 @@ func (s *Service) UploadDocument(req *UploadRequest) (*model.UploadResult, error
 		return nil, err
 	}
 
-	// 维护标签：确保存在并增加关联计数。
-	for _, t := range created.Tags {
-		t = strings.TrimSpace(t)
-		if t == "" {
-			continue
-		}
-		if _, err := s.EnsureTag(t); err == nil {
-			s.store.BumpTagCount(t, 1)
-		}
+	// 维护标签：确保存在并增加关联计数，并将规范化后的标签名回写到文档。
+	tags, err := s.AssociateTags(created.Tags)
+	if err != nil {
+		return nil, err
+	}
+	created.Tags = make([]string, 0, len(tags))
+	for _, tag := range tags {
+		created.Tags = append(created.Tags, tag.GetName())
 	}
 
 	terms, err := s.BuildIndex(created)
