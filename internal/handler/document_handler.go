@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -29,7 +30,10 @@ func (h *Handler) ListDocuments(w http.ResponseWriter, r *http.Request) {
 	page := queryInt(r, "page", 1)
 	pageSize := queryInt(r, "page_size", 0)
 
-	docs, total, err := h.svc.ListDocuments(page, pageSize)
+	// 缺陷：这里未使用 r.Context()，而是新建了不会随请求取消的后台上下文，
+	// 导致客户端超时/取消后，取消信号无法向下游存储遍历传播。
+	ctx := context.Background()
+	docs, total, err := h.svc.ListDocuments(ctx, page, pageSize)
 	if err != nil {
 		response.Error(w, response.CodeInternal, err.Error())
 		return

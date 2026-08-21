@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+
 	"benzhi/internal/model"
 	"benzhi/pkg/util"
 )
@@ -44,7 +46,12 @@ func (s *Service) GetDocument(id string) (*model.Document, error) {
 }
 
 // ListDocuments 分页返回文档列表（按上传时间倒序）。
-func (s *Service) ListDocuments(page, pageSize int) ([]*model.Document, int, error) {
+//
+// ctx 用于在客户端取消请求时中断底层存储遍历。
+func (s *Service) ListDocuments(ctx context.Context, page, pageSize int) ([]*model.Document, int, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if page <= 0 {
 		page = 1
 	}
@@ -55,7 +62,7 @@ func (s *Service) ListDocuments(page, pageSize int) ([]*model.Document, int, err
 		pageSize = s.cfg.Search.MaxPageSize
 	}
 
-	docs, err := s.store.ListDocuments()
+	docs, err := s.store.ListDocumentsContext(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
