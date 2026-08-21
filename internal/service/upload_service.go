@@ -74,9 +74,9 @@ func (s *Service) UploadDocument(req *UploadRequest) (*model.UploadResult, error
 		if t == "" {
 			continue
 		}
-		if _, err := s.EnsureTag(t); err == nil {
-			s.store.BumpTagCount(t, 1)
-		}
+		// 缺陷：通过业务层的 incrementTagCount 在锁外完成「读-改-写」，
+		// 并发上传同一标签时会丢失更新。
+		s.incrementTagCount(t, 1)
 	}
 
 	terms, err := s.BuildIndex(created)

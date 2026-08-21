@@ -98,3 +98,42 @@ func (s *Store) BumpTagCount(name string, delta int) {
 	}
 	s.persistLocked()
 }
+
+// GetTagRefByName 返回指向内部标签对象的裸指针（不复制）。
+//
+// 该方法仅在查找时持有读锁，返回后锁即释放，但返回的指针仍然指向 Store 内部
+// 的共享 *model.Tag。上层在锁外通过该指针修改字段，会与其他并发请求产生数据
+// 竞争，并使标签关联计数（Count）发生丢失更新（lost update）。
+func (s *Store) GetTagRefByName(name string) (*model.Tag, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, t := range s.tags {
+		if t.Name == name {
+			return t, nil
+		}
+	}
+	return nil, model.ErrNotFound
+}
+
+// SetTagCount 将指定名称标签的关联文档计数覆盖为 count。
+//
+// 缺陷：本方法只负责「写」这一半。当前计数由上层通过 GetTagRefByName / EnsureTag
+// 读取，并在业务层完成 +1 后再传入本方法。读取与写回之间没有连续持有写锁，
+// 因此并发上传同一标签时，多个 goroutine 会基于同一个旧值计算后相互覆盖，
+// 导致最终 Count 小于实际的关联文档数。
+func (s *Store) SetTagCount(name string, count int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, t := range s.tags {
+		if t.Name == name {
+			t.Count = count
+			if t.Count < 0 {
+				t.Count = 0
+			}
+			break
+		}
+	}
+	s.persistLocked()
+}
