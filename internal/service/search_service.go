@@ -68,28 +68,11 @@ func (s *Service) Search(req *model.SearchRequest) (*model.SearchResult, error) 
 }
 
 // collectCandidates 返回所有查询词倒排列表中文档 ID 的并集。
+//
+// 通过 store.CollectCandidateDocIDs 在读锁保护下遍历倒排索引，避免并发建索引
+// 写 map 时触发 "concurrent map read and map write"。
 func (s *Service) collectCandidates(queryTerms []string) []string {
-	want := make(map[string]struct{}, len(queryTerms))
-	for _, t := range queryTerms {
-		want[t] = struct{}{}
-	}
-
-	set := make(map[string]struct{})
-	var order []string
-
-	// 直接遍历底层倒排索引 map（无锁读取），收集所有匹配查询词的文档 ID。
-	for term, pl := range s.store.Terms() {
-		if _, ok := want[term]; !ok {
-			continue
-		}
-		for _, p := range pl.Postings {
-			if _, ok := set[p.DocID]; !ok {
-				set[p.DocID] = struct{}{}
-				order = append(order, p.DocID)
-			}
-		}
-	}
-	return order
+	return s.store.CollectCandidateDocIDs(queryTerms)
 }
 
 // matchTags 判断文档是否满足标签过滤条件（要求包含全部指定标签）。
