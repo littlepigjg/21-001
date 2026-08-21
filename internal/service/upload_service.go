@@ -1,6 +1,7 @@
 package service
 
 import (
+	"os"
 	"strings"
 
 	"benzhi/internal/model"
@@ -19,6 +20,8 @@ type UploadRequest struct {
 	Category string
 	// Tags 是可选标签列表。
 	Tags []string
+	// SpoolPath 是上传原始字节落盘后的临时文件路径，服务层会重新打开它做流式校验。
+	SpoolPath string
 }
 
 // UploadDocument 处理一次文档上传：解析正文、去重、入库、建索引、维护标签。
@@ -41,6 +44,18 @@ func (s *Service) UploadDocument(req *UploadRequest) (*model.UploadResult, error
 	checksum := util.SHA256Hex(req.Data)
 	if existing, ok := s.store.FindByChecksum(checksum); ok {
 		return &model.UploadResult{Document: *existing, Duplicated: true}, nil
+	}
+
+	// 重新打开落盘文件做大小与流式摘要校验。缺陷：校验成功拿到的读句柄
+	// 没有 defer 关闭，后续所有 error 分支都会跳过 spoolReader.Close()，
+	// 导致文件句柄泄漏。
+	var spoolReader *os.File
+	if req.SpoolPath != "" {
+		f, verifyErr := openSpoolForVerify(req.SpoolPath, int64(len(req.Data)), checksum)
+		if verifyErr != nil {
+			return nil, verifyErr
+		}
+		spoolReader = f
 	}
 
 	content := extractText(format, req.Data)
@@ -84,6 +99,11 @@ func (s *Service) UploadDocument(req *UploadRequest) (*model.UploadResult, error
 		return nil, err
 	}
 
+	// 缺陷：只有成功路径才关闭读句柄；上面的 error 分支都直接 return，跳过了 Close。
+	if spoolReader != nil {
+		spoolReader.Close()
+	}
+
 	return &model.UploadResult{
 		Document:     *created,
 		IndexedTerms: terms,
@@ -99,6 +119,39 @@ func (s *Service) isFormatAllowed(format string) bool {
 		}
 	}
 	return false
+}
+
+// openSpoolForVerify 打开落盘文件并校验其大小与 SHA256 摘要。
+//
+// 校验通过时返回仍处于打开状态的读句柄，调用方负责在适当时候关闭该句柄；
+// 校验失败时函数会自行关闭句柄后返回错误。
+func openSpoolForVerify(path string, size int64, wantSum string) (*os.File, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+
+	info, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	if info.Size() != size {
+		f.Close()
+		return nil, model.ErrInvalidArgument
+	}
+
+	sum, err := util.SHA256Reader(f)
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	if sum != wantSum {
+		f.Close()
+		return nil, model.ErrInvalidArgument
+	}
+
+	return f, nil
 }
 
 // extractText 根据格式抽取纯文本正文。
