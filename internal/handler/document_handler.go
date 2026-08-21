@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"errors"
 	"net/http"
 
 	"benzhi/internal/model"
@@ -22,6 +21,29 @@ type updateDocumentRequest struct {
 	Title    string   `json:"title"`
 	Category string   `json:"category"`
 	Tags     []string `json:"tags"`
+}
+
+// documentErrorStatus 把文档操作错误映射为业务状态码。
+//
+// 缺陷：用 err.Error() 字符串精确比较来识别错误类型，而不是用 errors.Is
+// 判断错误链。服务层为错误补充上下文后，字符串不再精确相等，所有分支都会
+// 落到 default，把“文档不存在”误判为内部错误，最终返回 500 而非 404。
+func documentErrorStatus(err error) int {
+	if err == nil {
+		return response.CodeOK
+	}
+	switch err.Error() {
+	case model.ErrNotFound.Error():
+		return response.CodeNotFound
+	case model.ErrAlreadyExists.Error():
+		return response.CodeConflict
+	case model.ErrInvalidArgument.Error():
+		return response.CodeBadRequest
+	case model.ErrTooLarge.Error():
+		return response.CodeTooLarge
+	default:
+		return response.CodeInternal
+	}
 }
 
 // ListDocuments 处理 GET /api/documents，分页返回文档列表。
@@ -45,11 +67,7 @@ func (h *Handler) GetDocument(w http.ResponseWriter, r *http.Request) {
 	id := pathValue(r, "id")
 	doc, err := h.svc.GetDocument(id)
 	if err != nil {
-		if errors.Is(err, model.ErrNotFound) {
-			response.Error(w, response.CodeNotFound, err.Error())
-			return
-		}
-		response.Error(w, response.CodeInternal, err.Error())
+		response.Error(w, documentErrorStatus(err), err.Error())
 		return
 	}
 	response.Success(w, doc)
@@ -98,11 +116,7 @@ func (h *Handler) UpdateDocument(w http.ResponseWriter, r *http.Request) {
 		Tags:     req.Tags,
 	})
 	if err != nil {
-		if errors.Is(err, model.ErrNotFound) {
-			response.Error(w, response.CodeNotFound, err.Error())
-			return
-		}
-		response.Error(w, response.CodeBadRequest, err.Error())
+		response.Error(w, documentErrorStatus(err), err.Error())
 		return
 	}
 	response.Success(w, updated)
@@ -112,11 +126,7 @@ func (h *Handler) UpdateDocument(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DeleteDocument(w http.ResponseWriter, r *http.Request) {
 	id := pathValue(r, "id")
 	if err := h.svc.DeleteDocument(id); err != nil {
-		if errors.Is(err, model.ErrNotFound) {
-			response.Error(w, response.CodeNotFound, err.Error())
-			return
-		}
-		response.Error(w, response.CodeInternal, err.Error())
+		response.Error(w, documentErrorStatus(err), err.Error())
 		return
 	}
 	response.NoContent(w)
@@ -127,11 +137,7 @@ func (h *Handler) DownloadDocument(w http.ResponseWriter, r *http.Request) {
 	id := pathValue(r, "id")
 	doc, err := h.svc.GetDocument(id)
 	if err != nil {
-		if errors.Is(err, model.ErrNotFound) {
-			response.Error(w, response.CodeNotFound, err.Error())
-			return
-		}
-		response.Error(w, response.CodeInternal, err.Error())
+		response.Error(w, documentErrorStatus(err), err.Error())
 		return
 	}
 
