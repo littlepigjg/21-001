@@ -1,0 +1,9 @@
+# 忽略本地运行产生的数据与构建产物
+data/
+*.log
+.git/
+.gitignore
+config.json
+BENZHI_README.md
+BUG_CATALOG.md
+benzhi

@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>企业知识库全文检索系统</title>
+  <style>
+    :root { --primary: #2563eb; --bg: #f5f7fa; --card: #ffffff; --border: #e5e7eb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); color: #1f2937; }
+    header { background: var(--primary); color: #fff; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+    header h1 { margin: 0; font-size: 20px; }
+    main { max-width: 1080px; margin: 24px auto; padding: 0 16px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+    .card h2 { margin-top: 0; font-size: 16px; }
+    input, select, button { font-size: 14px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; }
+    button { background: var(--primary); color: #fff; border: none; cursor: pointer; }
+    button:hover { opacity: .9; }
+    .row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+    .row input[type="text"] { flex: 1; min-width: 120px; }
+    .muted { color: #6b7280; font-size: 12px; }
+    .item { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+    .item h3 { margin: 0 0 4px; font-size: 15px; }
+    .tag { display: inline-block; background: #eef2ff; color: #4338ca; border-radius: 999px; padding: 2px 8px; font-size: 12px; margin-right: 4px; }
+    pre { background: #f9fafb; padding: 10px; border-radius: 6px; overflow: auto; max-height: 320px; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>企业知识库全文检索系统</h1>
+    <span id="status" class="muted" style="color:#fff;">连接中…</span>
+  </header>
+  <main>
+    <div class="grid">
+      <section class="card">
+        <h2>上传文档</h2>
+        <div class="row"><input type="file" id="file" /></div>
+        <div class="row">
+          <input type="text" id="uploadTitle" placeholder="标题（可选）" />
+          <input type="text" id="uploadCategory" placeholder="分类（可选）" />
+        </div>
+        <div class="row"><input type="text" id="uploadTags" placeholder="标签，逗号分隔（可选）" style="width:100%;" /></div>
+        <div class="row"><button onclick="upload()">上传</button></div>
+      </section>
+
+      <section class="card">
+        <h2>全文检索</h2>
+        <div class="row">
+          <input type="text" id="query" placeholder="输入关键词…" />
+          <select id="sortBy">
+            <option value="relevance">相关度</option>
+            <option value="hot">热度</option>
+            <option value="time">时间</option>
+          </select>
+          <button onclick="search()">搜索</button>
+        </div>
+        <div class="row">
+          <input type="text" id="filterCategory" placeholder="分类过滤" />
+          <input type="text" id="filterTags" placeholder="标签过滤" />
+        </div>
+        <div id="searchResult"><p class="muted">暂无结果</p></div>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:16px;">
+      <h2>文档列表 <button onclick="listDocs()" style="margin-left:8px;">刷新</button></h2>
+      <div id="docList"><p class="muted">加载中…</p></div>
+    </section>
+  </main>
+
+  <script>
+    const API = '';
+    function esc(s) { return (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+    async function api(path, opts) {
+      const res = await fetch(API + path, opts);
+      if (res.status === 204) return null;
+      return res.json();
+    }
+
+    async function checkHealth() {
+      try {
+        const r = await api('/health');
+        document.getElementById('status').textContent = '已连接';
+      } catch (e) { document.getElementById('status').textContent = '连接失败'; }
+    }
+
+    async function upload() {
+      const file = document.getElementById('file').files[0];
+      if (!file) { alert('请选择文件'); return; }
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('title', document.getElementById('uploadTitle').value);
+      fd.append('category', document.getElementById('uploadCategory').value);
+      fd.append('tags', document.getElementById('uploadTags').value);
+      try {
+        const r = await api('/api/documents/upload', { method: 'POST', body: fd });
+        alert('上传成功，文档 ID：' + (r.data && r.data.document && r.data.document.id));
+        listDocs();
+      } catch (e) { alert('上传失败：' + e.message); }
+    }
+
+    async function search() {
+      const q = encodeURIComponent(document.getElementById('query').value);
+      const cat = encodeURIComponent(document.getElementById('filterCategory').value);
+      const tags = encodeURIComponent(document.getElementById('filterTags').value);
+      const sort = document.getElementById('sortBy').value;
+      try {
+        const r = await api(`/api/search?q=${q}&category=${cat}&tags=${tags}&sort_by=${sort}`);
+        renderHits(r.data);
+      } catch (e) { document.getElementById('searchResult').innerHTML = '<p class="muted">检索失败</p>'; }
+    }
+
+    function renderHits(data) {
+      const el = document.getElementById('searchResult');
+      if (!data || !data.hits || data.hits.length === 0) { el.innerHTML = '<p class="muted">无匹配结果</p>'; return; }
+      el.innerHTML = `<p class="muted">共 ${data.total} 条，耗时 ${data.took_ms}ms</p>` +
+        data.hits.map(h => `
+          <div class="item">
+            <h3>${esc(h.document.title)}</h3>
+            <div class="muted">评分 ${h.score.toFixed(4)} · 浏览 ${h.view_count} · 下载 ${h.download_count} · ${esc(h.document.category)}</div>
+            <div>${(h.document.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>
+          </div>`).join('');
+    }
+
+    async function listDocs() {
+      try {
+        const r = await api('/api/documents?page=1&page_size=50');
+        renderDocs(r.data);
+      } catch (e) { document.getElementById('docList').innerHTML = '<p class="muted">加载失败</p>'; }
+    }
+
+    function renderDocs(data) {
+      const el = document.getElementById('docList');
+      const items = data && data.items ? data.items : [];
+      if (items.length === 0) { el.innerHTML = '<p class="muted">暂无文档</p>'; return; }
+      el.innerHTML = items.map(d => `
+        <div class="item">
+          <h3>${esc(d.title)}</h3>
+          <div class="muted">${esc(d.id)} · ${esc(d.format)} · ${new Date(d.upload_time * 1000).toLocaleString()}</div>
+          <div>${(d.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>
+        </div>`).join('');
+    }
+
+    checkHealth();
+    listDocs();
+  </script>
+</body>
+</html>
