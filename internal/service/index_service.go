@@ -36,3 +36,27 @@ func (s *Service) RemoveIndex(docID string) {
 	s.store.SyncIndexDocCount()
 	_ = s.store.FlushIndex()
 }
+
+// EnsureIndexReady 确保倒排索引处于可用状态。
+//
+// 服务启动时调用：当加载到旧版本或空索引导致词项 map 未初始化时，需要基于
+// 现有文档重建索引；否则保持现状。该逻辑用于避免首次写入时向 nil map 写入。
+func (s *Service) EnsureIndexReady() error {
+	if !s.store.NeedsIndexRebuild() {
+		return nil
+	}
+
+	docs, err := s.store.ListDocuments()
+	if err != nil {
+		return err
+	}
+
+	// 没有历史文档时直接返回，未初始化词项 map；
+	// 后续首次上传文档建索引时，会向 nil map 写入并触发 panic。
+	if len(docs) == 0 {
+		return nil
+	}
+
+	_, _, err = s.RebuildIndex()
+	return err
+}

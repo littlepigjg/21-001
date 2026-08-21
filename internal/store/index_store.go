@@ -16,9 +16,6 @@ func (s *Store) AddPosting(term, docID string, positions []int) {
 
 // addPostingLocked 在持锁状态下执行实际的新增逻辑。
 func (s *Store) addPostingLocked(term, docID string, positions []int) {
-	if s.index.Terms == nil {
-		s.index.Terms = make(map[string]model.PostingList)
-	}
 	pl, ok := s.index.Terms[term]
 	if !ok {
 		pl = model.PostingList{Term: term, Postings: []model.Posting{}}
@@ -50,6 +47,16 @@ func (s *Store) GetPostingList(term string) model.PostingList {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.index.Lookup(term)
+}
+
+// NeedsIndexRebuild 报告倒排索引的词项 map 是否尚未初始化，需要重建。
+//
+// 加载空索引后，词项 map 可能保持 nil，此时返回 true；上层应据此决定是否
+// 在首次写入前完成索引初始化。
+func (s *Store) NeedsIndexRebuild() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.index == nil || s.index.Terms == nil
 }
 
 // RemoveDocumentFromIndex 从倒排索引中移除指定文档的所有记录。

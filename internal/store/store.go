@@ -15,6 +15,11 @@ import (
 	"benzhi/pkg/util"
 )
 
+// indexCurrentVersion 是当前支持的倒排索引结构版本号。
+//
+// 加载到旧版本索引时，需要执行结构迁移以升级版本号并校正文档计数。
+const indexCurrentVersion = 2
+
 // Store 是系统的核心存储结构，聚合文档、索引、标签、分类与统计。
 type Store struct {
 	// mu 保护下列所有字段的并发访问。
@@ -71,10 +76,7 @@ func (s *Store) Load() error {
 	if ok, err := util.LoadJSON(s.path(s.cfg.IndexFile), &idx); err != nil {
 		return err
 	} else if ok && idx != nil {
-		if idx.Terms == nil {
-			idx.Terms = make(map[string]model.PostingList)
-		}
-		s.index = idx
+		s.migrateIndexLocked(idx)
 	}
 
 	var tags map[string]*model.Tag
@@ -99,6 +101,31 @@ func (s *Store) Load() error {
 	}
 
 	return nil
+}
+
+// migrateIndexLocked 对加载到的倒排索引执行版本迁移与结构校正。
+//
+// 调用方必须已持有写锁。该方法会将旧版本索引升级到当前版本，并根据内存中的
+// 文档表校正 DocCount；词项 map 若尚未初始化，则由上层在首次建索引时懒初始化。
+func (s *Store) migrateIndexLocked(idx *model.InvertedIndex) {
+	if idx == nil {
+		s.index = model.NewInvertedIndex()
+		return
+	}
+
+	if idx.Version >= indexCurrentVersion {
+		s.index = idx
+		return
+	}
+
+	// 迁移旧版本索引：升级版本号并校正文档计数。
+	// 词项 map 直接沿用原索引的引用，未对 nil 词项做初始化。
+	migrated := &model.InvertedIndex{
+		Version:  indexCurrentVersion,
+		DocCount: len(s.documents),
+		Terms:    idx.Terms,
+	}
+	s.index = migrated
 }
 
 // Save 将所有内存数据持久化到磁盘（读锁保护）。

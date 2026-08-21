@@ -49,6 +49,10 @@ func main() {
 	}
 
 	svc := service.New(st, cfg)
+	if err := svc.EnsureIndexReady(); err != nil {
+		logger.Error("初始化索引失败", "err", err)
+		os.Exit(1)
+	}
 	h := handler.NewHandler(svc)
 	router := handler.NewRouter(h)
 
