@@ -2,10 +2,6 @@ package tokenizer
 
 import "strings"
 
-// Stem 对英文单词执行轻量级词干化（去常见后缀）。
-//
-// 说明：完整的词干化算法（如 Porter）较复杂，本实现仅做保守的后缀剥离，
-// 降低同一词根不同形态带来的召回损失，同时避免过度截断。
 func Stem(word string) string {
 	word = strings.ToLower(word)
 	if len(word) <= 3 {
@@ -13,8 +9,8 @@ func Stem(word string) string {
 	}
 
 	suffixes := []struct {
-		suffix   string
-		minStem  int
+		suffix  string
+		minStem int
 	}{
 		{"ization", 5},
 		{"ational", 5},
@@ -39,7 +35,6 @@ func Stem(word string) string {
 	return word
 }
 
-// NormalizeNumber 将连续数字替换为占位符，用于归一化数值差异。
 func NormalizeNumber(word string) string {
 	hasDigit := false
 	for _, r := range word {

@@ -6,7 +6,6 @@ import (
 	"benzhi/internal/model"
 )
 
-// CreateCategory 新增一个分类。名称重复时返回 model.ErrAlreadyExists。
 func (s *Store) CreateCategory(cat *model.Category) error {
 	if cat == nil || cat.Name == "" {
 		return model.ErrInvalidArgument
@@ -26,7 +25,6 @@ func (s *Store) CreateCategory(cat *model.Category) error {
 	return nil
 }
 
-// ListCategories 返回所有分类（按名称排序）。
 func (s *Store) ListCategories() ([]*model.Category, error) {
 	s.mu.RLock()
 	cats := make([]*model.Category, 0, len(s.categories))
@@ -42,7 +40,6 @@ func (s *Store) ListCategories() ([]*model.Category, error) {
 	return cats, nil
 }
 
-// GetCategoryByName 按名称返回分类。
 func (s *Store) GetCategoryByName(name string) (*model.Category, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -56,7 +53,6 @@ func (s *Store) GetCategoryByName(name string) (*model.Category, error) {
 	return nil, model.ErrNotFound
 }
 
-// GetCategoryByID 按 ID 返回分类。
 func (s *Store) GetCategoryByID(id string) (*model.Category, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -69,7 +65,6 @@ func (s *Store) GetCategoryByID(id string) (*model.Category, error) {
 	return &copied, nil
 }
 
-// DeleteCategory 按 ID 删除分类。
 func (s *Store) DeleteCategory(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

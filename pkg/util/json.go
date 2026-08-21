@@ -7,9 +7,6 @@ import (
 	"path/filepath"
 )
 
-// LoadJSON 从文件读取并反序列化 JSON 到目标结构。
-//
-// 若文件不存在则返回 false 而不报错，便于调用方判断是否需要初始化。
 func LoadJSON(path string, target interface{}) (bool, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -27,9 +24,6 @@ func LoadJSON(path string, target interface{}) (bool, error) {
 	return true, nil
 }
 
-// SaveJSON 将目标结构序列化并原子写入文件。
-//
-// 先写入临时文件再重命名，避免进程崩溃时损坏已有数据。
 func SaveJSON(path string, value interface{}) error {
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {

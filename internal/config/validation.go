@@ -5,9 +5,6 @@ import (
 	"strings"
 )
 
-// Validate 检查配置是否合法，返回所有问题描述。
-//
-// 若返回空切片表示配置合法。该函数用于在服务启动前暴露明显配置错误。
 func (c *Config) Validate() []string {
 	var problems []string
 
@@ -64,7 +61,6 @@ func (c *Config) Validate() []string {
 	return problems
 }
 
-// ValidateString 返回配置校验结果的格式化文本。
 func (c *Config) ValidateString() string {
 	problems := c.Validate()
 	if len(problems) == 0 {

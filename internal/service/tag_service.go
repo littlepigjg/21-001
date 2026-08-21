@@ -7,7 +7,6 @@ import (
 	"benzhi/pkg/util"
 )
 
-// CreateTag 创建一个新标签。
 func (s *Service) CreateTag(name string) (*model.Tag, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -26,7 +25,6 @@ func (s *Service) CreateTag(name string) (*model.Tag, error) {
 	return tag, nil
 }
 
-// EnsureTag 确保指定名称的标签存在（不存在则创建），返回标签。
 func (s *Service) EnsureTag(name string) (*model.Tag, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -38,12 +36,10 @@ func (s *Service) EnsureTag(name string) (*model.Tag, error) {
 	return s.CreateTag(name)
 }
 
-// ListTags 返回全部标签。
 func (s *Service) ListTags() ([]*model.Tag, error) {
 	return s.store.ListTags()
 }
 
-// DeleteTag 删除标签，并将其从所有关联文档中移除。
 func (s *Service) DeleteTag(id string) error {
 	tag, err := s.store.GetTagByID(id)
 	if err != nil {
@@ -54,7 +50,6 @@ func (s *Service) DeleteTag(id string) error {
 		return err
 	}
 
-	// 从所有文档中移除该标签。
 	docs, _ := s.store.ListDocuments()
 	for _, d := range docs {
 		if d.HasTag(tag.Name) {
@@ -65,7 +60,6 @@ func (s *Service) DeleteTag(id string) error {
 	return nil
 }
 
-// TagCount 返回标签总数。
 func (s *Service) TagCount() int {
 	tags, err := s.store.ListTags()
 	if err != nil {

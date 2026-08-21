@@ -7,16 +7,11 @@ import (
 	"benzhi/internal/model"
 )
 
-// HighlightStart 与 HighlightEnd 是命中词项的高亮标记。
 const (
 	HighlightStart = "[["
 	HighlightEnd   = "]]"
 )
 
-// BuildSnippet 为文档正文生成包含命中词项的摘要片段。
-//
-// 片段优先选取第一个命中词项附近的上下文，长度不超过 maxRunes（字符数）。
-// 命中词项会被 HighlightStart/HighlightEnd 包裹。
 func (s *Service) BuildSnippet(doc *model.Document, queryTerms []string, maxRunes int) string {
 	if doc == nil || maxRunes <= 0 {
 		return ""
@@ -27,7 +22,6 @@ func (s *Service) BuildSnippet(doc *model.Document, queryTerms []string, maxRune
 		return ""
 	}
 
-	// 查找第一个命中词项在正文中的位置。
 	lowerContent := strings.ToLower(doc.Content)
 	firstHit := -1
 	for _, term := range queryTerms {
@@ -52,7 +46,7 @@ func (s *Service) BuildSnippet(doc *model.Document, queryTerms []string, maxRune
 	}
 
 	snippet := string(content[start:end])
-	// 对片段内的命中词项做高亮替换（忽略大小写）。
+
 	lowerSnippet := strings.ToLower(snippet)
 	for _, term := range queryTerms {
 		lt := strings.ToLower(term)
@@ -64,7 +58,7 @@ func (s *Service) BuildSnippet(doc *model.Document, queryTerms []string, maxRune
 			}
 			abs := offset + idx
 			snippet = snippet[:abs] + HighlightStart + snippet[abs:abs+len(term)] + HighlightEnd + snippet[abs+len(term):]
-			// 重新计算 lowerSnippet，避免高亮标记影响后续匹配。
+
 			lowerSnippet = strings.ToLower(snippet)
 			offset = abs + len(HighlightStart) + len(term) + len(HighlightEnd)
 		}

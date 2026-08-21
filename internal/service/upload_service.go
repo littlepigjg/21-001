@@ -7,21 +7,18 @@ import (
 	"benzhi/pkg/util"
 )
 
-// UploadRequest 描述一次文件上传请求。
 type UploadRequest struct {
-	// Filename 是原始文件名，用于推断格式与默认标题。
 	Filename string
-	// Data 是文件的原始字节内容。
+
 	Data []byte
-	// Title 是可选的自定义标题，为空则使用文件名。
+
 	Title string
-	// Category 是可选分类。
+
 	Category string
-	// Tags 是可选标签列表。
+
 	Tags []string
 }
 
-// UploadDocument 处理一次文档上传：解析正文、去重、入库、建索引、维护标签。
 func (s *Service) UploadDocument(req *UploadRequest) (*model.UploadResult, error) {
 	if req == nil || len(req.Data) == 0 {
 		return nil, model.ErrInvalidArgument
@@ -68,7 +65,6 @@ func (s *Service) UploadDocument(req *UploadRequest) (*model.UploadResult, error
 		return nil, err
 	}
 
-	// 维护标签：确保存在并增加关联计数。
 	for _, t := range created.Tags {
 		t = strings.TrimSpace(t)
 		if t == "" {
@@ -91,7 +87,6 @@ func (s *Service) UploadDocument(req *UploadRequest) (*model.UploadResult, error
 	}, nil
 }
 
-// isFormatAllowed 判断格式是否在配置允许列表内。
 func (s *Service) isFormatAllowed(format string) bool {
 	for _, f := range s.cfg.Upload.AllowedFormats {
 		if model.NormalizeFormat(f) == format {
@@ -101,13 +96,12 @@ func (s *Service) isFormatAllowed(format string) bool {
 	return false
 }
 
-// extractText 根据格式抽取纯文本正文。
 func extractText(format string, data []byte) string {
 	switch format {
 	case model.FormatPDF:
 		return util.ExtractPDFText(data)
 	default:
-		// txt / md / markdown 均直接按 UTF-8 文本处理。
+
 		return string(data)
 	}
 }

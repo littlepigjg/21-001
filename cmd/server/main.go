@@ -1,7 +1,3 @@
-// 企业知识库全文检索系统 —— 服务入口。
-//
-// 该文件负责：加载配置、初始化日志与存储、构建 HTTP 服务，并在收到
-// SIGINT/SIGTERM 信号时执行优雅关闭。
 package main
 
 import (
@@ -28,7 +24,7 @@ func main() {
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		// 配置文件缺失或损坏时回退到默认配置，保证服务可启动。
+
 		cfg = config.Get()
 		fmt.Fprintf(os.Stderr, "警告：加载配置失败，使用默认配置（%v）\n", err)
 	}
@@ -60,7 +56,6 @@ func main() {
 		WriteTimeout: time.Duration(cfg.Server.WriteTimeoutSeconds) * time.Second,
 	}
 
-	// 在独立 goroutine 中启动服务，主协程等待退出信号。
 	go func() {
 		logger.Info("服务启动", "addr", addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -69,7 +64,6 @@ func main() {
 		}
 	}()
 
-	// 优雅关闭：监听 SIGINT / SIGTERM。
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
@@ -87,7 +81,6 @@ func main() {
 	logger.Info("服务已退出")
 }
 
-// initLogger 根据配置初始化全局日志器的级别与输出目标。
 func initLogger(cfg config.Config) error {
 	logger.SetLevel(logger.ParseLevel(cfg.Log.Level))
 

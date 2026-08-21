@@ -9,7 +9,6 @@ import (
 	"benzhi/pkg/util"
 )
 
-// PreviewDocument 处理 GET /api/documents/{id}/preview，返回带高亮的摘要片段。
 func (h *Handler) PreviewDocument(w http.ResponseWriter, r *http.Request) {
 	id := pathValue(r, "id")
 	doc, err := h.svc.GetDocument(id)

@@ -7,9 +7,6 @@ import (
 	"benzhi/pkg/util"
 )
 
-// RecommendRelated 返回与指定文档相关的文档列表（基于共享标签）。
-//
-// 相关度以两篇文档共享的标签数量衡量，共享标签越多排名越靠前。
 func (s *Service) RecommendRelated(docID string, limit int) ([]model.SearchHit, error) {
 	if limit <= 0 || limit > s.cfg.Search.MaxPageSize {
 		limit = s.cfg.Search.DefaultPageSize
@@ -64,7 +61,6 @@ func (s *Service) RecommendRelated(docID string, limit int) ([]model.SearchHit, 
 	return hits, nil
 }
 
-// sharedTagCount 计算两篇文档共享的标签数量。
 func sharedTagCount(a, b *model.Document) int {
 	if a == nil || b == nil {
 		return 0

@@ -8,7 +8,6 @@ import (
 	"benzhi/pkg/response"
 )
 
-// RecommendRelated 处理 GET /api/documents/{id}/related，返回相关文档。
 func (h *Handler) RecommendRelated(w http.ResponseWriter, r *http.Request) {
 	id := pathValue(r, "id")
 	limit := queryInt(r, "limit", 0)

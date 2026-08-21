@@ -1,15 +1,11 @@
 package service
 
-// RebuildIndex 清空现有倒排索引，并基于全部文档重新构建。
-//
-// 该操作用于在索引损坏或结构升级后重建索引。返回重建的文档数与词项数。
 func (s *Service) RebuildIndex() (int, int, error) {
 	docs, err := s.store.ListDocuments()
 	if err != nil {
 		return 0, 0, err
 	}
 
-	// 清空索引后重建。
 	s.store.ClearIndex()
 
 	termSet := make(map[string]struct{})
@@ -37,7 +33,6 @@ func (s *Service) RebuildIndex() (int, int, error) {
 	return indexed, len(termSet), nil
 }
 
-// IndexIntegrity 检查索引与文档表之间的一致性，返回不一致项描述。
 func (s *Service) IndexIntegrity() []string {
 	docs, _ := s.store.ListDocuments()
 	var issues []string

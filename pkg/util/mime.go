@@ -5,7 +5,6 @@ import (
 	"strings"
 )
 
-// MIMETypeByExtension 根据文件扩展名返回常见 MIME 类型。
 func MIMETypeByExtension(filename string) string {
 	lower := strings.ToLower(filename)
 	switch {
@@ -22,7 +21,6 @@ func MIMETypeByExtension(filename string) string {
 	}
 }
 
-// IsMultipartForm 判断请求是否为 multipart/form-data 类型。
 func IsMultipartForm(r *http.Request) bool {
 	ct := r.Header.Get("Content-Type")
 	return strings.HasPrefix(ct, "multipart/form-data")

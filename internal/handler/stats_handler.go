@@ -8,7 +8,6 @@ import (
 	"benzhi/pkg/response"
 )
 
-// HotDocuments 处理 GET /api/stats/hot，返回按热度排序的文档。
 func (h *Handler) HotDocuments(w http.ResponseWriter, r *http.Request) {
 	limit := queryInt(r, "limit", 0)
 	hits, err := h.svc.PopularDocuments(limit)
@@ -19,7 +18,6 @@ func (h *Handler) HotDocuments(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, hits)
 }
 
-// DocumentStats 处理 GET /api/stats/{id}，返回单个文档的统计信息。
 func (h *Handler) DocumentStats(w http.ResponseWriter, r *http.Request) {
 	id := pathValue(r, "id")
 	stats, err := h.svc.GetDocumentStats(id)

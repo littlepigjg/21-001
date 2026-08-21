@@ -6,7 +6,6 @@ import (
 	"benzhi/internal/model"
 )
 
-// CreateTag 新增一个标签。名称重复时返回 model.ErrAlreadyExists。
 func (s *Store) CreateTag(tag *model.Tag) error {
 	if tag == nil || tag.Name == "" {
 		return model.ErrInvalidArgument
@@ -26,7 +25,6 @@ func (s *Store) CreateTag(tag *model.Tag) error {
 	return nil
 }
 
-// ListTags 返回所有标签（按名称排序）。
 func (s *Store) ListTags() ([]*model.Tag, error) {
 	s.mu.RLock()
 	tags := make([]*model.Tag, 0, len(s.tags))
@@ -42,7 +40,6 @@ func (s *Store) ListTags() ([]*model.Tag, error) {
 	return tags, nil
 }
 
-// GetTagByName 按名称返回标签。
 func (s *Store) GetTagByName(name string) (*model.Tag, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -56,7 +53,6 @@ func (s *Store) GetTagByName(name string) (*model.Tag, error) {
 	return nil, model.ErrNotFound
 }
 
-// GetTagByID 按 ID 返回标签。
 func (s *Store) GetTagByID(id string) (*model.Tag, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -69,7 +65,6 @@ func (s *Store) GetTagByID(id string) (*model.Tag, error) {
 	return &copied, nil
 }
 
-// DeleteTag 按 ID 删除标签。
 func (s *Store) DeleteTag(id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -82,7 +77,6 @@ func (s *Store) DeleteTag(id string) error {
 	return nil
 }
 
-// BumpTagCount 调整标签关联的文档计数（可为负）。
 func (s *Store) BumpTagCount(name string, delta int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -12,12 +12,6 @@ import (
 	"benzhi/internal/store"
 )
 
-// TestBugDefer026_ImportHandleExhaustion 验证批量导入期间原文文件句柄是否被
-// 在循环内用 defer 推迟到函数结束才关闭，从而造成句柄峰值堆积。
-//
-// 修复前：ImportDocumentsJSON 在循环内 defer w.Close()，导致导入 N 篇文档时
-// 同时保持约 N 个打开句柄，PeakOpenContentHandles 会大于 1（RED）。
-// 修复后：每篇文档写入完成后立即关闭句柄，峰值应恒为 1（GREEN）。
 func TestBugDefer026_ImportHandleExhaustion(t *testing.T) {
 	dataDir, err := os.MkdirTemp("", "benzhi-defer-026-")
 	if err != nil {
