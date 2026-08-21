@@ -22,6 +22,11 @@ func (s *Service) Search(ctx context.Context, req *model.SearchRequest) (*model.
 		return nil, model.ErrEmptyQuery
 	}
 
+	// 在进入开销较大的候选收集/评分流程前先检查取消信号，后续每个循环内也会持续检查。
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
 	// 收集候选文档 ID（取各查询词倒排列表的并集）。
 	candidates := s.collectCandidates(queryTerms)
 	if len(candidates) == 0 {
@@ -38,6 +43,10 @@ func (s *Service) Search(ctx context.Context, req *model.SearchRequest) (*model.
 	// 加载候选文档并应用分类/标签过滤。
 	docs := make([]*model.Document, 0, len(candidates))
 	for _, id := range candidates {
+		// 文档加载可能涉及较多候选，逐批检查取消信号，及时响应用户断开/刷新。
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		doc, err := s.store.GetDocument(id)
 		if err != nil {
 			continue
@@ -52,7 +61,10 @@ func (s *Service) Search(ctx context.Context, req *model.SearchRequest) (*model.
 	}
 
 	// 构造命中项并排序。
-	hits := s.buildHits(ctx, docs, queryTerms, req.SortBy)
+	hits, err := s.buildHits(ctx, docs, queryTerms, req.SortBy)
+	if err != nil {
+		return nil, err
+	}
 	total := len(hits)
 
 	// 分页。
@@ -98,7 +110,11 @@ func (s *Service) matchTags(doc *model.Document, tags []string) bool {
 }
 
 // buildHits 根据文档构造命中项，并按排序方式排序。
-func (s *Service) buildHits(ctx context.Context, docs []*model.Document, queryTerms []string, sortBy string) []model.SearchHit {
+//
+// BM25 评分（scoreDocument）是结果集较大时最耗 CPU 的环节，循环内逐文档检查 ctx：
+// 用户关掉浏览器或刷新页面后客户端取消会经 r.Context() 传到这里，及时中断评分，
+// 避免对已取消请求继续跑完所有候选文档浪费 CPU。
+func (s *Service) buildHits(ctx context.Context, docs []*model.Document, queryTerms []string, sortBy string) ([]model.SearchHit, error) {
 	N := s.store.CountDocuments()
 	avgdl := averageDocLen(docs)
 	if avgdl <= 0 {
@@ -111,6 +127,10 @@ func (s *Service) buildHits(ctx context.Context, docs []*model.Document, queryTe
 
 	hits := make([]model.SearchHit, 0, len(docs))
 	for _, doc := range docs {
+		// 逐文档检查取消信号：一旦请求被取消立即停止评分返回。
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		st := s.store.GetStats(doc.ID)
 		hits = append(hits, model.SearchHit{
 			Document:      *doc,
@@ -121,7 +141,7 @@ func (s *Service) buildHits(ctx context.Context, docs []*model.Document, queryTe
 	}
 
 	s.sortHits(hits, sortBy)
-	return hits
+	return hits, nil
 }
 
 // sortHits 按指定方式排序命中列表。

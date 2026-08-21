@@ -25,7 +25,9 @@ func (h *Handler) SearchAdvanced(w http.ResponseWriter, r *http.Request) {
 		SortBy:   queryString(r, "sort_by", model.SortByRelevance),
 	}
 
-	result, err := h.svc.Search(context.Background(), req)
+	// 使用 r.Context() 而非 context.Background()，让客户端断开/刷新时的取消信号
+	// 能传播到检索与评分流程，避免后端继续对已取消请求跑 BM25 评分浪费 CPU。
+	result, err := h.svc.Search(r.Context(), req)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			response.Error(w, response.CodeInternal, "请求已取消")
