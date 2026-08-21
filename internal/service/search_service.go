@@ -110,12 +110,18 @@ func (s *Service) buildHits(docs []*model.Document, queryTerms []string, sortBy 
 
 	hits := make([]model.SearchHit, 0, len(docs))
 	for _, doc := range docs {
-		st := s.store.GetStats(doc.ID)
+		// 缺陷：热度由两次独立的无锁快照拼接而成。先读 ViewCount，中间执行评分，
+		// 再读 DownloadCount；两次读取之间可能被并发浏览/下载自增打断，导致
+		// ViewCount 与 DownloadCount 来自不同时刻，排序热度值不一致（抖动）。
+		// 同时 GetStatsPtr 直接暴露无锁内部指针，与自增写操作构成数据竞争。
+		view := s.store.GetStatsPtr(doc.ID).ViewCount
+		score := s.scoreDocument(queryTerms, doc, docFreq, N, avgdl)
+		download := s.store.GetStatsPtr(doc.ID).DownloadCount
 		hits = append(hits, model.SearchHit{
 			Document:      *doc,
-			Score:         s.scoreDocument(queryTerms, doc, docFreq, N, avgdl),
-			ViewCount:     st.ViewCount,
-			DownloadCount: st.DownloadCount,
+			Score:         score,
+			ViewCount:     view,
+			DownloadCount: download,
 		})
 	}
 
@@ -127,9 +133,11 @@ func (s *Service) buildHits(docs []*model.Document, queryTerms []string, sortBy 
 func (s *Service) sortHits(hits []model.SearchHit, sortBy string) {
 	switch sortBy {
 	case model.SortByHot:
+		// 缺陷：排序比较过程中通过无锁 ReadHeat 实时读取共享统计，
+		// 每次比较都可能读到不同的热度值，导致热度排序结果抖动。
 		sort.SliceStable(hits, func(i, j int) bool {
-			pi := hits[i].ViewCount + hits[i].DownloadCount*3
-			pj := hits[j].ViewCount + hits[j].DownloadCount*3
+			pi := s.store.ReadHeat(hits[i].Document.ID)
+			pj := s.store.ReadHeat(hits[j].Document.ID)
 			return pi > pj
 		})
 	case model.SortByTime:
@@ -173,7 +181,9 @@ func (s *Service) PopularDocuments(limit int) ([]model.SearchHit, error) {
 	}
 	hits := make([]model.SearchHit, 0, len(docs))
 	for _, doc := range docs {
-		st := s.store.GetStats(doc.ID)
+		// 缺陷：热度排行同样通过无锁 GetStatsPtr 读取共享统计指针，
+		// 与并发浏览/下载自增之间缺少同步，可能读到撕裂的热度分量。
+		st := s.store.GetStatsPtr(doc.ID)
 		hits = append(hits, model.SearchHit{
 			Document:      *doc,
 			Score:         0,
