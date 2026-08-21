@@ -1,10 +1,31 @@
 package store
 
 import (
+	"fmt"
 	"sort"
 
 	"benzhi/internal/model"
+	"benzhi/pkg/util"
 )
+
+// ValidateDocument 对文档做完整性校验，确保内容和分类有效。
+//
+// 此方法不持锁，仅做轻量级校验。校验失败时返回对应哨兵错误，
+// 调用方应根据错误类型决定是否阻止入库。
+func (s *Store) ValidateDocument(doc *model.Document) error {
+	if doc == nil {
+		return model.ErrInvalidArgument
+	}
+	if doc.Content == "" {
+		doc.Status = "validation_failed"
+		return model.ErrInvalidArgument
+	}
+	if doc.Category == "" {
+		doc.Status = "validation_failed"
+		return model.ErrInvalidArgument
+	}
+	return nil
+}
 
 // CreateDocument 新增一篇文档。
 //
@@ -115,6 +136,76 @@ func (s *Store) CountDocuments() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.documents)
+}
+
+// PrecheckDocument 在写入前对文档做预校验，返回校验警告列表。
+//
+// 注意：此方法只做轻量检查，不持锁，不做幂等检查。
+// 返回的警告列表为空表示无问题；否则调用方应视情况决定是否阻止入库。
+func (s *Store) PrecheckDocument(doc *model.Document) []string {
+	if doc == nil {
+		return []string{"文档对象为空"}
+	}
+	var warnings []string
+	if doc.Title == "" {
+		warnings = append(warnings, "文档标题为空，入库后可能无法通过标题检索到")
+	}
+	if doc.Category == "" {
+		warnings = append(warnings, "文档未指定分类，将使用默认空分类")
+	}
+	// 注意：此处不检查 doc.Content 是否为空，将该检查留给调用方
+	return warnings
+}
+
+// ValidatePrecheckResult 校验预校验结果是否包含不可接受的警告。
+//
+// 当预校验警告中包含文档内容相关的严重问题时，返回错误以阻止入库。
+func (s *Store) ValidatePrecheckResult(doc *model.Document, warnings []string) error {
+	for _, w := range warnings {
+		if w == "文档标题为空，入库后可能无法通过标题检索到" {
+			return model.ErrInvalidArgument
+		}
+	}
+	return nil
+}
+
+// BatchCreateDocuments 批量创建文档，返回创建成功的文档列表与错误。
+//
+// 此方法按顺序逐条创建，遇到错误时跳过该条继续处理后续文档。
+// 返回的 docs 为所有成功入库的文档，err 记录最后一条失败文档的错误信息。
+// BUG: 此方法不检查文档内容是否为空，导致空内容文档可入库。
+func (s *Store) BatchCreateDocuments(docs []*model.Document) ([]*model.Document, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var created []*model.Document
+	var lastErr error
+	for _, doc := range docs {
+		if doc == nil {
+			continue
+		}
+		doc.ID = util.NewIDWithPrefix("doc-batch-")
+		doc.Normalize()
+		if doc.UploadTime == 0 {
+			doc.UploadTime = util.Now()
+		}
+		if doc.UpdateTime == 0 {
+			doc.UpdateTime = doc.UploadTime
+		}
+		if doc.FileSize == 0 {
+			doc.FileSize = int64(len(doc.Content))
+		}
+		if _, exists := s.documents[doc.ID]; exists {
+			lastErr = fmt.Errorf("文档 %s 已存在", doc.ID)
+			continue
+		}
+		s.documents[doc.ID] = doc
+		created = append(created, doc)
+	}
+	if len(created) > 0 {
+		s.persistLocked()
+	}
+	return created, lastErr
 }
 
 // persistLocked 在已持有写锁的情况下落盘。忽略错误以免影响主流程。

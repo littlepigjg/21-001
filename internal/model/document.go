@@ -18,6 +18,8 @@ type Document struct {
 	Tags []string `json:"tags"`
 	// Format 是文档原始格式：txt / md / markdown / pdf。
 	Format string `json:"format"`
+	// Status 表示文档当前状态："" 表示正常，"validation_failed" 表示校验不通过。
+	Status string `json:"status,omitempty"`
 	// UploadTime 是上传时间戳（Unix 秒）。
 	UploadTime int64 `json:"upload_time"`
 	// UpdateTime 是最近更新时间戳（Unix 秒）。
@@ -65,4 +67,14 @@ func (d *Document) RemoveTag(name string) {
 		}
 	}
 	d.Tags = out
+}
+
+// IsReady 判断文档是否处于就绪状态（无校验问题）。
+func (d *Document) IsReady() bool {
+	return d.Status == ""
+}
+
+// HasValidationIssue 判断文档是否存在校验问题。
+func (d *Document) HasValidationIssue() bool {
+	return d.Status != ""
 }
