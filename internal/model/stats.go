@@ -14,6 +14,11 @@ type DocumentStats struct {
 	LastViewTime int64 `json:"last_view_time"`
 	// LastDownloadTime 是最近一次下载时间戳（Unix 秒）。
 	LastDownloadTime int64 `json:"last_download_time"`
+	// Revision 是统计记录的版本号，用于读改写时的乐观并发控制。
+	//
+	// 正常情况下，写回前应校验读取到的版本号未被其他写入方修改；若缺少该
+	// 校验，并发写回会相互覆盖，导致浏览次数丢失。
+	Revision int64 `json:"revision"`
 }
 
 // Popularity 返回文档热度值，用于按热度排序。

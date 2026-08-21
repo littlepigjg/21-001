@@ -38,8 +38,7 @@ func (s *Service) GetDocument(id string) (*model.Document, error) {
 		return nil, err
 	}
 	// 浏览行为计入统计，但不影响文档元数据。
-	s.store.EnsureStats(id)
-	s.store.IncrementView(id)
+	s.IncrementView(id)
 	return doc, nil
 }
 
