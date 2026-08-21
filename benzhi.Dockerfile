@@ -6,6 +6,10 @@ FROM golang:1.22
 
 WORKDIR /app
 
+# 单机跨架构构建（QEMU 模拟 arm64）时，并行编译会触发 binfmt 的
+# fork/exec "exec format error"，因此禁用并行编译，保证两种架构均能构建成功。
+ENV GOFLAGS=-p=1
+
 # 复制源代码（含 go.mod、web 前端与所有 .go 文件）。
 COPY . /app
 
