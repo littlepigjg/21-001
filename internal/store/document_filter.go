@@ -7,7 +7,6 @@ import (
 	"benzhi/internal/model"
 )
 
-// ListByCategory 返回指定分类下的所有文档（按上传时间倒序）。
 func (s *Store) ListByCategory(category string) ([]*model.Document, error) {
 	s.mu.RLock()
 	var docs []*model.Document
@@ -26,7 +25,6 @@ func (s *Store) ListByCategory(category string) ([]*model.Document, error) {
 	return docs, nil
 }
 
-// ListByTag 返回包含指定标签的所有文档（按上传时间倒序）。
 func (s *Store) ListByTag(tag string) ([]*model.Document, error) {
 	s.mu.RLock()
 	var docs []*model.Document
@@ -45,7 +43,6 @@ func (s *Store) ListByTag(tag string) ([]*model.Document, error) {
 	return docs, nil
 }
 
-// ListByTitleContains 返回标题包含指定子串的文档列表（不区分大小写）。
 func (s *Store) ListByTitleContains(substr string) ([]*model.Document, error) {
 	substr = strings.ToLower(substr)
 	s.mu.RLock()
@@ -65,7 +62,6 @@ func (s *Store) ListByTitleContains(substr string) ([]*model.Document, error) {
 	return docs, nil
 }
 
-// ListTagsWithCounts 返回标签及其关联文档数量（动态计算）。
 func (s *Store) ListTagsWithCounts() map[string]int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

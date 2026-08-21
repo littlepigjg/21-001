@@ -10,7 +10,6 @@ import (
 	"benzhi/pkg/util"
 )
 
-// ExportDocumentsJSON 将所有文档导出为 JSON 数组写入 w。
 func (s *Service) ExportDocumentsJSON(w io.Writer) error {
 	docs, err := s.store.ListDocuments()
 	if err != nil {
@@ -24,9 +23,6 @@ func (s *Service) ExportDocumentsJSON(w io.Writer) error {
 	return nil
 }
 
-// ExportDocumentsCSV 将所有文档导出为 CSV 写入 w。
-//
-// CSV 列：id,title,category,tags,format,upload_time,view_count,download_count。
 func (s *Service) ExportDocumentsCSV(w io.Writer) error {
 	docs, err := s.store.ListDocuments()
 	if err != nil {
@@ -54,7 +50,6 @@ func (s *Service) ExportDocumentsCSV(w io.Writer) error {
 	return nil
 }
 
-// ImportDocumentsJSON 从 JSON 数组导入文档并重建索引，返回导入数量。
 func (s *Service) ImportDocumentsJSON(r io.Reader) (int, error) {
 	var docs []*model.Document
 	dec := json.NewDecoder(r)
@@ -67,7 +62,7 @@ func (s *Service) ImportDocumentsJSON(r io.Reader) (int, error) {
 		if d == nil || d.Title == "" || d.Content == "" {
 			continue
 		}
-		// 重新分配 ID 避免与现有文档冲突。
+
 		d.ID = util.NewIDWithPrefix("doc-")
 		d.Normalize()
 		if err := s.store.CreateDocument(d); err != nil {
@@ -81,7 +76,6 @@ func (s *Service) ImportDocumentsJSON(r io.Reader) (int, error) {
 	return imported, nil
 }
 
-// BackupData 将全部数据目录文件复制到备份目录。
 func (s *Service) BackupData(backupDir string) (int, error) {
 	files, err := util.ListFiles(s.cfg.Storage.DataDir)
 	if err != nil {

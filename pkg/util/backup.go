@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 )
 
-// CopyFile 将源文件复制到目标路径（保留权限，覆盖已存在文件）。
 func CopyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
@@ -36,7 +35,6 @@ func CopyFile(src, dst string) error {
 	return out.Sync()
 }
 
-// ListFiles 返回目录下所有常规文件的完整路径（不递归）。
 func ListFiles(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {

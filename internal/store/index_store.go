@@ -5,16 +5,12 @@ import (
 	"benzhi/pkg/util"
 )
 
-// AddPosting 向倒排索引中为指定词项添加或更新一条文档记录。
-//
-// 该方法只更新内存索引，不触发落盘；索引构建完成后由上层调用 FlushIndex。
 func (s *Store) AddPosting(term, docID string, positions []int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.addPostingLocked(term, docID, positions)
 }
 
-// addPostingLocked 在持锁状态下执行实际的新增逻辑。
 func (s *Store) addPostingLocked(term, docID string, positions []int) {
 	if s.index.Terms == nil {
 		s.index.Terms = make(map[string]model.PostingList)
@@ -24,7 +20,6 @@ func (s *Store) addPostingLocked(term, docID string, positions []int) {
 		pl = model.PostingList{Term: term, Postings: []model.Posting{}}
 	}
 
-	// 查找该文档是否已存在，存在则更新，否则追加。
 	found := false
 	for i := range pl.Postings {
 		if pl.Postings[i].DocID == docID {
@@ -45,14 +40,12 @@ func (s *Store) addPostingLocked(term, docID string, positions []int) {
 	s.index.Terms[term] = pl
 }
 
-// GetPostingList 返回指定词项的倒排列表，不存在时返回零值列表。
 func (s *Store) GetPostingList(term string) model.PostingList {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.index.Lookup(term)
 }
 
-// RemoveDocumentFromIndex 从倒排索引中移除指定文档的所有记录。
 func (s *Store) RemoveDocumentFromIndex(docID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -74,35 +67,30 @@ func (s *Store) RemoveDocumentFromIndex(docID string) {
 	}
 }
 
-// IndexDocCount 返回当前索引覆盖的文档总数（由上层维护）。
 func (s *Store) IndexDocCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.index.DocCount
 }
 
-// SetIndexDocCount 设置索引覆盖的文档总数。
 func (s *Store) SetIndexDocCount(n int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.index.DocCount = n
 }
 
-// IndexTermCount 返回索引中的词项总数。
 func (s *Store) IndexTermCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.index.Terms)
 }
 
-// SyncIndexDocCount 以当前文档表长度同步索引的文档计数。
 func (s *Store) SyncIndexDocCount() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.index.DocCount = len(s.documents)
 }
 
-// ClearIndex 清空倒排索引（保留结构）。
 func (s *Store) ClearIndex() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -110,9 +98,6 @@ func (s *Store) ClearIndex() {
 	s.index.DocCount = 0
 }
 
-// FlushIndex 仅将倒排索引落盘，并返回本次落盘覆盖的词项数量。
-//
-// 返回值供上层在重建索引后同步统计信息使用。
 func (s *Store) FlushIndex() (int, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -123,9 +108,6 @@ func (s *Store) FlushIndex() (int, error) {
 	return s.flushedTermCount(), nil
 }
 
-// flushedTermCount 返回本次落盘的词项数量。
-//
-// 缺陷：这里本应返回 len(s.index.Terms)，却错误地返回了文档数 DocCount。
 func (s *Store) flushedTermCount() int {
 	return s.index.DocCount
 }

@@ -8,12 +8,10 @@ import (
 	"benzhi/pkg/response"
 )
 
-// createTagRequest 是创建标签的请求体。
 type createTagRequest struct {
 	Name string `json:"name"`
 }
 
-// ListTags 处理 GET /api/tags，返回全部标签。
 func (h *Handler) ListTags(w http.ResponseWriter, r *http.Request) {
 	tags, err := h.svc.ListTags()
 	if err != nil {
@@ -23,7 +21,6 @@ func (h *Handler) ListTags(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, tags)
 }
 
-// CreateTag 处理 POST /api/tags，创建标签。
 func (h *Handler) CreateTag(w http.ResponseWriter, r *http.Request) {
 	var req createTagRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -43,7 +40,6 @@ func (h *Handler) CreateTag(w http.ResponseWriter, r *http.Request) {
 	response.Created(w, tag)
 }
 
-// DeleteTag 处理 DELETE /api/tags/{id}，删除标签。
 func (h *Handler) DeleteTag(w http.ResponseWriter, r *http.Request) {
 	id := pathValue(r, "id")
 	if err := h.svc.DeleteTag(id); err != nil {

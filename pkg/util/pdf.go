@@ -5,17 +5,8 @@ import (
 	"strings"
 )
 
-// ExtractPDFText 从 PDF 原始字节中抽取纯文本（简化实现）。
-//
-// 说明：真实的 PDF 文本抽取需要解析交叉引用表、流对象与字体编码，复杂度
-// 极高。本系统为满足"纯标准库"约束，采用启发式方法：
-//   - 解压 FlateDecode 流（标准库 compress/zlib 与 compress/flate）；
-//   - 提取 ( ) 与 < > 包裹的字符串字面量以及 Tj / TJ 操作数中的文本。
-//
-// 该实现足以处理多数由文本编辑器/简单生成器产生的 PDF，对复杂扫描件仅能
-// 抽取部分文本。
 func ExtractPDFText(data []byte) string {
-	// 定位所有流对象并尝试解压其中的内容流。
+
 	var content []byte
 	streamStart := []byte("stream")
 	streamEnd := []byte("endstream")
@@ -25,7 +16,7 @@ func ExtractPDFText(data []byte) string {
 		if idx < 0 {
 			break
 		}
-		// 跳过 "stream" 关键字及紧随其后的换行。
+
 		idx += len(streamStart)
 		if idx < len(data) && (data[idx] == '\r') {
 			idx++
@@ -51,9 +42,8 @@ func ExtractPDFText(data []byte) string {
 	return extractTextOperators(content)
 }
 
-// inflate 尝试对 zlib 压缩的数据解压；失败时原样返回。
 func inflate(data []byte) []byte {
-	// zlib 数据通常以 0x78 0x9C / 0x78 0x01 开头。
+
 	if len(data) >= 2 && data[0] == 0x78 {
 		if out, err := zlibDecompress(data); err == nil {
 			return out
@@ -62,11 +52,10 @@ func inflate(data []byte) []byte {
 	return data
 }
 
-// extractTextOperators 从内容流中抽取文本绘制操作符携带的字符串。
 func extractTextOperators(content []byte) string {
 	var out strings.Builder
 	inText := false
-	// 简化状态机：遇到 BT 进入文本对象，遇到 ET 退出。
+
 	s := string(content)
 	for i := 0; i < len(s); i++ {
 		if !inText {
@@ -82,7 +71,7 @@ func extractTextOperators(content []byte) string {
 			continue
 		}
 		if s[i] == '(' {
-			// 读取括号字符串，处理转义。
+
 			j := i + 1
 			var b strings.Builder
 			for j < len(s) && s[j] != ')' {

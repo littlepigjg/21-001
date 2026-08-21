@@ -8,13 +8,11 @@ import (
 	"benzhi/pkg/response"
 )
 
-// createCategoryRequest 是创建分类的请求体。
 type createCategoryRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
 
-// ListCategories 处理 GET /api/categories，返回全部分类。
 func (h *Handler) ListCategories(w http.ResponseWriter, r *http.Request) {
 	cats, err := h.svc.ListCategories()
 	if err != nil {
@@ -24,7 +22,6 @@ func (h *Handler) ListCategories(w http.ResponseWriter, r *http.Request) {
 	response.Success(w, cats)
 }
 
-// CreateCategory 处理 POST /api/categories，创建分类。
 func (h *Handler) CreateCategory(w http.ResponseWriter, r *http.Request) {
 	var req createCategoryRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -44,7 +41,6 @@ func (h *Handler) CreateCategory(w http.ResponseWriter, r *http.Request) {
 	response.Created(w, cat)
 }
 
-// DeleteCategory 处理 DELETE /api/categories/{id}，删除分类。
 func (h *Handler) DeleteCategory(w http.ResponseWriter, r *http.Request) {
 	id := pathValue(r, "id")
 	if err := h.svc.DeleteCategory(id); err != nil {

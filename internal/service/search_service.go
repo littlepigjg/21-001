@@ -7,7 +7,6 @@ import (
 	"benzhi/internal/model"
 )
 
-// Search 执行全文检索，返回按指定方式排序并分页后的结果。
 func (s *Service) Search(req *model.SearchRequest) (*model.SearchResult, error) {
 	if req == nil || req.Query == "" {
 		return nil, model.ErrEmptyQuery
@@ -21,7 +20,6 @@ func (s *Service) Search(req *model.SearchRequest) (*model.SearchResult, error) 
 		return nil, model.ErrEmptyQuery
 	}
 
-	// 收集候选文档 ID（取各查询词倒排列表的并集）。
 	candidates := s.collectCandidates(queryTerms)
 	if len(candidates) == 0 {
 		return &model.SearchResult{
@@ -34,7 +32,6 @@ func (s *Service) Search(req *model.SearchRequest) (*model.SearchResult, error) 
 		}, nil
 	}
 
-	// 加载候选文档并应用分类/标签过滤。
 	docs := make([]*model.Document, 0, len(candidates))
 	for _, id := range candidates {
 		doc, err := s.store.GetDocument(id)
@@ -50,11 +47,9 @@ func (s *Service) Search(req *model.SearchRequest) (*model.SearchResult, error) 
 		docs = append(docs, doc)
 	}
 
-	// 构造命中项并排序。
 	hits := s.buildHits(docs, queryTerms, req.SortBy)
 	total := len(hits)
 
-	// 分页。
 	pageHits := s.paginate(hits, req.Page, req.PageSize)
 
 	return &model.SearchResult{
@@ -67,7 +62,6 @@ func (s *Service) Search(req *model.SearchRequest) (*model.SearchResult, error) 
 	}, nil
 }
 
-// collectCandidates 返回所有查询词倒排列表中文档 ID 的并集。
 func (s *Service) collectCandidates(queryTerms []string) []string {
 	set := make(map[string]struct{})
 	var order []string
@@ -83,7 +77,6 @@ func (s *Service) collectCandidates(queryTerms []string) []string {
 	return order
 }
 
-// matchTags 判断文档是否满足标签过滤条件（要求包含全部指定标签）。
 func (s *Service) matchTags(doc *model.Document, tags []string) bool {
 	if len(tags) == 0 {
 		return true
@@ -96,7 +89,6 @@ func (s *Service) matchTags(doc *model.Document, tags []string) bool {
 	return true
 }
 
-// buildHits 根据文档构造命中项，并按排序方式排序。
 func (s *Service) buildHits(docs []*model.Document, queryTerms []string, sortBy string) []model.SearchHit {
 	N := s.store.CountDocuments()
 	avgdl := averageDocLen(docs)
@@ -123,7 +115,6 @@ func (s *Service) buildHits(docs []*model.Document, queryTerms []string, sortBy 
 	return hits
 }
 
-// sortHits 按指定方式排序命中列表。
 func (s *Service) sortHits(hits []model.SearchHit, sortBy string) {
 	switch sortBy {
 	case model.SortByHot:
@@ -143,7 +134,6 @@ func (s *Service) sortHits(hits []model.SearchHit, sortBy string) {
 	}
 }
 
-// paginate 对命中列表做分页切片。
 func (s *Service) paginate(hits []model.SearchHit, page, pageSize int) []model.SearchHit {
 	if page <= 0 {
 		page = 1
@@ -162,7 +152,6 @@ func (s *Service) paginate(hits []model.SearchHit, page, pageSize int) []model.S
 	return hits[start:end]
 }
 
-// PopularDocuments 返回按热度排序的文档列表。
 func (s *Service) PopularDocuments(limit int) ([]model.SearchHit, error) {
 	if limit <= 0 || limit > s.cfg.Search.MaxPageSize {
 		limit = s.cfg.Search.DefaultPageSize
@@ -188,7 +177,6 @@ func (s *Service) PopularDocuments(limit int) ([]model.SearchHit, error) {
 	return hits, nil
 }
 
-// RecentDocuments 返回最近上传的文档列表。
 func (s *Service) RecentDocuments(limit int) ([]*model.Document, error) {
 	if limit <= 0 {
 		limit = s.cfg.Search.DefaultPageSize

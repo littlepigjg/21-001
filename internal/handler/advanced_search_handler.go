@@ -7,9 +7,6 @@ import (
 	"benzhi/pkg/response"
 )
 
-// SearchAdvanced 处理 GET /api/search/advanced，支持高级查询语法。
-//
-// 查询参数 q 支持 "引号短语"、category:值、tag:值 等语法。
 func (h *Handler) SearchAdvanced(w http.ResponseWriter, r *http.Request) {
 	raw := queryString(r, "q", "")
 	pq := h.svc.ParseQuery(raw)

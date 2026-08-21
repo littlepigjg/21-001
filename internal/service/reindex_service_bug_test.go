@@ -9,10 +9,6 @@ import (
 	"benzhi/internal/store"
 )
 
-// TestRebuildIndexTermCount 验证重建索引返回的词项计数是否正确。
-//
-// 缺陷未修复时返回的词项计数会错误地等于文档数，本用例会打印 RED 并失败；
-// 缺陷修复后返回正确的唯一词项数，本用例会打印 GREEN 并通过。
 func TestRebuildIndexTermCount(t *testing.T) {
 	st, err := store.NewStore(config.StorageConfig{
 		DataDir:        t.TempDir(),
