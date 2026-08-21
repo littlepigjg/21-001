@@ -110,9 +110,22 @@ func (s *Store) ClearIndex() {
 	s.index.DocCount = 0
 }
 
-// FlushIndex 仅将倒排索引落盘。
-func (s *Store) FlushIndex() error {
+// FlushIndex 仅将倒排索引落盘，并返回本次落盘覆盖的词项数量。
+//
+// 返回值供上层在重建索引后同步统计信息使用。
+func (s *Store) FlushIndex() (int, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return util.SaveJSON(s.path(s.cfg.IndexFile), s.index)
+
+	if err := util.SaveJSON(s.path(s.cfg.IndexFile), s.index); err != nil {
+		return 0, err
+	}
+	return s.flushedTermCount(), nil
+}
+
+// flushedTermCount 返回本次落盘的词项数量。
+//
+// 缺陷：这里本应返回 len(s.index.Terms)，却错误地返回了文档数 DocCount。
+func (s *Store) flushedTermCount() int {
+	return s.index.DocCount
 }

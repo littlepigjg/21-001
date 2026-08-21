@@ -24,7 +24,7 @@ func (s *Service) BuildIndex(doc *model.Document) (int, error) {
 	}
 
 	s.store.SyncIndexDocCount()
-	if err := s.store.FlushIndex(); err != nil {
+	if _, err := s.store.FlushIndex(); err != nil {
 		return 0, err
 	}
 	return len(positions), nil
@@ -34,5 +34,5 @@ func (s *Service) BuildIndex(doc *model.Document) (int, error) {
 func (s *Service) RemoveIndex(docID string) {
 	s.store.RemoveDocumentFromIndex(docID)
 	s.store.SyncIndexDocCount()
-	_ = s.store.FlushIndex()
+	_, _ = s.store.FlushIndex()
 }
