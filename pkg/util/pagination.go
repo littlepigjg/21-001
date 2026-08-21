@@ -11,25 +11,36 @@ type Page struct {
 }
 
 // Offset 返回当前页的起始偏移量。
+//
+// 含溢出保护：当 (Page-1)*PageSize 会溢出为负数时，返回 maxInt 作为
+// “远超末页”的哨兵，交由 End 钳制到 total，从而避免切片越界 panic。
 func (p Page) Offset() int {
-	if p.Page <= 1 {
+	if p.Page <= 1 || p.PageSize <= 0 {
 		return 0
+	}
+	if p.Page-1 > maxInt/p.PageSize {
+		return maxInt
 	}
 	return (p.Page - 1) * p.PageSize
 }
 
 // End 返回当前页的结束偏移量（不含）。
+//
+// 对 [0, Total] 钳制：当 Offset 溢出或超过 Total 时返回 Total，
+// 保证切片区间始终合法。
 func (p Page) End() int {
 	end := p.Offset() + p.PageSize
-	if end > p.Total {
+	if end > p.Total || end < 0 {
 		end = p.Total
 	}
 	return end
 }
 
 // HasNext 判断是否还有下一页。
+//
+// 借助受保护的 Offset，超大页码下不会因溢出而误判为“还有下一页”。
 func (p Page) HasNext() bool {
-	return p.Offset()+p.PageSize < p.Total
+	return p.Offset() < p.Total && p.Offset()+p.PageSize < p.Total
 }
 
 // TotalPages 返回总页数。
@@ -73,7 +84,8 @@ func NewPageQuery(page, pageSize, defaultPageSize int) PageQuery {
 
 // Normalize 规范化分页参数：填充缺省值并限制每页上限。
 //
-// 注意：该方法不做页码上限校验，超大页码需由切片方兜底。
+// 该方法不做页码上限校验：超大页码的越界与溢出保护统一由
+// Offset/Window 兜底，调用方据此切片即可，无需再次钳制。
 func (q *PageQuery) Normalize(defaultPageSize, maxPageSize int) {
 	if q.Page <= 0 {
 		q.Page = 1
@@ -86,21 +98,36 @@ func (q *PageQuery) Normalize(defaultPageSize, maxPageSize int) {
 	}
 }
 
+// maxInt 是当前平台 int 的最大值，用作“远超末页”的哨兵偏移量。
+const maxInt = int(^uint(0) >> 1)
+
 // Offset 返回当前页在底层切片上的起始偏移量。
 //
-// 该偏移量不做越界或溢出保护：当 Page 极大时，(Page-1)*PageSize 可能溢出为负数。
+// 含溢出保护：当 (Page-1)*PageSize 会溢出为负数时，返回 maxInt 作为
+// “远超末页”的哨兵，交由 Window 钳制到空区间，从而避免切片越界 panic。
+// 乘法前先用除法判定是否溢出，避免先溢出再比较。
 func (q PageQuery) Offset() int {
+	if q.Page <= 1 || q.PageSize <= 0 {
+		return 0
+	}
+	if q.Page-1 > maxInt/q.PageSize {
+		return maxInt
+	}
 	return (q.Page - 1) * q.PageSize
 }
 
 // Window 依据总数计算分页切片窗口 [Start, End)。
 //
-// 只对 End 做上限封顶，不校验 Start：当 Offset 溢出或超过 total 时，
-// Start 可能为负数或大于 total。
+// 对 Start 与 End 均做 [0, total] 钳制，保证返回的区间始终落在底层
+// 切片范围内：当 Page 极大导致偏移溢出或超过 total 时，返回空窗口
+// {Start: total, End: total}，调用方得到空列表而非 panic。
 func (q PageQuery) Window(total int) PageWindow {
 	start := q.Offset()
+	if start < 0 || start > total {
+		start = total
+	}
 	end := start + q.PageSize
-	if end > total {
+	if end > total || end < start {
 		end = total
 	}
 	return PageWindow{Start: start, End: end}
