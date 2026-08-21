@@ -68,14 +68,13 @@ func (s *Service) UploadDocument(req *UploadRequest) (*model.UploadResult, error
 		return nil, err
 	}
 
-	// 维护标签：确保存在并增加关联计数。
+	// 维护标签：确保存在并增加关联计数。计数自增由 store 在写锁内原子完成
+	// （BumpTagCount），并发上传同一标签时不会丢失更新。
 	for _, t := range created.Tags {
 		t = strings.TrimSpace(t)
 		if t == "" {
 			continue
 		}
-		// 缺陷：通过业务层的 incrementTagCount 在锁外完成「读-改-写」，
-		// 并发上传同一标签时会丢失更新。
 		s.incrementTagCount(t, 1)
 	}
 

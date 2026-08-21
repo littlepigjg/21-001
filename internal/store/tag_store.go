@@ -82,7 +82,11 @@ func (s *Store) DeleteTag(id string) error {
 	return nil
 }
 
-// BumpTagCount 调整标签关联的文档计数（可为负）。
+// BumpTagCount 原子地调整标签关联的文档计数（可为负）。
+//
+// 读-改-写完整地发生在写锁内：多个并发调用各自基于最新值自增并写回，
+// 不会相互覆盖。这是维护 Count 的唯一正确入口，业务层不应再绕过它
+// 在锁外修改标签计数，否则会丢失更新。
 func (s *Store) BumpTagCount(name string, delta int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -99,18 +103,18 @@ func (s *Store) BumpTagCount(name string, delta int) {
 	s.persistLocked()
 }
 
-// GetTagRefByName 返回指向内部标签对象的裸指针（不复制）。
+// GetTagRefByName 按名称返回标签的副本。
 //
-// 该方法仅在查找时持有读锁，返回后锁即释放，但返回的指针仍然指向 Store 内部
-// 的共享 *model.Tag。上层在锁外通过该指针修改字段，会与其他并发请求产生数据
-// 竞争，并使标签关联计数（Count）发生丢失更新（lost update）。
+// 返回的是拷贝而非内部共享指针，调用方在锁外修改返回值不会影响 Store 内部
+// 状态，从而避免标签关联计数（Count）的丢失更新。
 func (s *Store) GetTagRefByName(name string) (*model.Tag, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	for _, t := range s.tags {
 		if t.Name == name {
-			return t, nil
+			copied := *t
+			return &copied, nil
 		}
 	}
 	return nil, model.ErrNotFound
@@ -118,10 +122,9 @@ func (s *Store) GetTagRefByName(name string) (*model.Tag, error) {
 
 // SetTagCount 将指定名称标签的关联文档计数覆盖为 count。
 //
-// 缺陷：本方法只负责「写」这一半。当前计数由上层通过 GetTagRefByName / EnsureTag
-// 读取，并在业务层完成 +1 后再传入本方法。读取与写回之间没有连续持有写锁，
-// 因此并发上传同一标签时，多个 goroutine 会基于同一个旧值计算后相互覆盖，
-// 导致最终 Count 小于实际的关联文档数。
+// 该方法只在确需「整体覆盖」计数时使用（如重建索引等批量场景）。并发上传
+// 等需要基于当前值自增的场景必须使用 BumpTagCount，在写锁内原子地完成
+// 读-改-写，否则多个 goroutine 会基于同一个旧值计算后相互覆盖。
 func (s *Store) SetTagCount(name string, count int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

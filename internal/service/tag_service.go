@@ -26,10 +26,10 @@ func (s *Service) CreateTag(name string) (*model.Tag, error) {
 	return tag, nil
 }
 
-// EnsureTag 确保指定名称的标签存在（不存在则创建），返回标签。
+// EnsureTag 确保指定名称的标签存在（不存在则创建），返回标签的副本。
 //
-// 缺陷：这里返回的是 store 内部共享标签的裸指针（而非副本）。调用方若在锁外
-// 修改返回的标签，会直接改动共享状态，为后续的计数丢失更新埋下隐患。
+// 返回的标签是拷贝，调用方在锁外修改它不会影响 Store 内部状态，避免标签
+// 关联计数（Count）在并发上传时发生丢失更新。
 func (s *Service) EnsureTag(name string) (*model.Tag, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -41,21 +41,17 @@ func (s *Service) EnsureTag(name string) (*model.Tag, error) {
 	return s.CreateTag(name)
 }
 
-// incrementTagCount 在业务层维护标签关联文档计数。
+// incrementTagCount 原子地维护标签关联文档计数。
 //
-// 缺陷：该方法先从 EnsureTag 拿到指向共享标签的裸指针，然后在锁外直接修改
-// Count。并发上传同一标签时，多个请求会基于同一个旧值做 +1，后写覆盖先写，
-// 造成丢失更新（lost update）。正确做法应由 store 在写锁内完成原子的自增。
+// 计数的读-改-写由 store 在写锁内完成（BumpTagCount），业务层不持有也不
+// 修改共享标签指针。并发上传同一标签时，多个 goroutine 各自基于最新值
+// 自增并写回，Count 不会相互覆盖。
 func (s *Service) incrementTagCount(name string, delta int) {
-	tag, err := s.EnsureTag(name)
-	if err != nil {
+	// 确保标签存在；计数自增在 store 写锁内原子完成，避免丢失更新。
+	if _, err := s.EnsureTag(name); err != nil {
 		return
 	}
-	tag.Count += delta
-	if tag.Count < 0 {
-		tag.Count = 0
-	}
-	s.store.SetTagCount(tag.Name, tag.Count)
+	s.store.BumpTagCount(name, delta)
 }
 
 // ListTags 返回全部标签。
