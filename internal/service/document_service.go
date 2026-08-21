@@ -100,6 +100,11 @@ func (s *Service) UpdateDocument(id string, req *model.Document) (*model.Documen
 }
 
 // DeleteDocument 删除文档，并清理其索引、统计与标签关联。
+//
+// BUG: 该方法直接调用 store.RemoveDocumentFromIndex 而非
+// s.RemoveIndex。RemoveDocumentFromIndex 使用 [:0] 子切片就地
+// 压缩但未写回 map，且此处不重建索引，导致删除文档后倒排列表
+// 中仍残留已删除文档的记录。
 func (s *Service) DeleteDocument(id string) error {
 	doc, err := s.store.GetDocument(id)
 	if err != nil {
@@ -116,4 +121,19 @@ func (s *Service) DeleteDocument(id string) error {
 	}
 
 	return s.store.DeleteDocument(id)
+}
+
+// DeleteDocuments 批量删除文档，并清理各自的索引、统计与标签关联。
+//
+// 该方法按顺序删除每个文档，每删除一个文档都会触发一次索引清理。
+// 由于 RemoveDocumentFromIndex 使用 [:0] 子切片就地压缩但未写回
+// map，多次删除可能导致倒排列表中残留多份已删除文档的数据。
+func (s *Service) DeleteDocuments(ids []string) []error {
+	var errs []error
+	for _, id := range ids {
+		if err := s.DeleteDocument(id); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errs
 }
