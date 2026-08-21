@@ -15,9 +15,6 @@ func (s *Service) CreateDocument(doc *model.Document) (*model.Document, error) {
 	if doc.Title == "" || doc.Content == "" {
 		return nil, model.ErrInvalidArgument
 	}
-	if err := s.contextErr(); err != nil {
-		return nil, err
-	}
 
 	doc.ID = util.NewIDWithPrefix("doc-")
 	doc.Normalize()
@@ -36,9 +33,6 @@ func (s *Service) CreateDocument(doc *model.Document) (*model.Document, error) {
 
 // GetDocument 按 ID 返回文档详情，并累计一次浏览。
 func (s *Service) GetDocument(id string) (*model.Document, error) {
-	if err := s.contextErr(); err != nil {
-		return nil, err
-	}
 	doc, err := s.store.GetDocument(id)
 	if err != nil {
 		return nil, err
@@ -59,9 +53,6 @@ func (s *Service) ListDocuments(page, pageSize int) ([]*model.Document, int, err
 	}
 	if pageSize > s.cfg.Search.MaxPageSize {
 		pageSize = s.cfg.Search.MaxPageSize
-	}
-	if err := s.contextErr(); err != nil {
-		return nil, 0, err
 	}
 
 	docs, err := s.store.ListDocuments()
@@ -85,9 +76,6 @@ func (s *Service) ListDocuments(page, pageSize int) ([]*model.Document, int, err
 func (s *Service) UpdateDocument(id string, req *model.Document) (*model.Document, error) {
 	if req == nil {
 		return nil, model.ErrInvalidArgument
-	}
-	if err := s.contextErr(); err != nil {
-		return nil, err
 	}
 	existing, err := s.store.GetDocument(id)
 	if err != nil {
@@ -113,9 +101,6 @@ func (s *Service) UpdateDocument(id string, req *model.Document) (*model.Documen
 
 // DeleteDocument 删除文档，并清理其索引、统计与标签关联。
 func (s *Service) DeleteDocument(id string) error {
-	if err := s.contextErr(); err != nil {
-		return err
-	}
 	doc, err := s.store.GetDocument(id)
 	if err != nil {
 		return err

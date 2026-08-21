@@ -13,7 +13,6 @@ import (
 //
 // 查询参数：q（关键词）、category、tags（逗号分隔）、page、page_size、sort_by。
 func (h *Handler) Search(w http.ResponseWriter, r *http.Request) {
-	h.captureRequestContext(r)
 	req := &model.SearchRequest{
 		Query:    queryString(r, "q", ""),
 		Category: queryString(r, "category", ""),

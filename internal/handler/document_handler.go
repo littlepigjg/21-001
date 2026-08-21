@@ -26,7 +26,6 @@ type updateDocumentRequest struct {
 
 // ListDocuments 处理 GET /api/documents，分页返回文档列表。
 func (h *Handler) ListDocuments(w http.ResponseWriter, r *http.Request) {
-	h.captureRequestContext(r)
 	page := queryInt(r, "page", 1)
 	pageSize := queryInt(r, "page_size", 0)
 
@@ -43,7 +42,6 @@ func (h *Handler) ListDocuments(w http.ResponseWriter, r *http.Request) {
 
 // GetDocument 处理 GET /api/documents/{id}，返回文档详情。
 func (h *Handler) GetDocument(w http.ResponseWriter, r *http.Request) {
-	h.captureRequestContext(r)
 	id := pathValue(r, "id")
 	doc, err := h.svc.GetDocument(id)
 	if err != nil {
@@ -59,7 +57,6 @@ func (h *Handler) GetDocument(w http.ResponseWriter, r *http.Request) {
 
 // CreateDocument 处理 POST /api/documents，通过 JSON 创建文档。
 func (h *Handler) CreateDocument(w http.ResponseWriter, r *http.Request) {
-	h.captureRequestContext(r)
 	var req createDocumentRequest
 	if err := decodeJSON(r, &req); err != nil {
 		response.Error(w, response.CodeBadRequest, "请求体解析失败: "+err.Error())
@@ -88,7 +85,6 @@ func (h *Handler) CreateDocument(w http.ResponseWriter, r *http.Request) {
 
 // UpdateDocument 处理 PUT /api/documents/{id}，更新文档元数据。
 func (h *Handler) UpdateDocument(w http.ResponseWriter, r *http.Request) {
-	h.captureRequestContext(r)
 	id := pathValue(r, "id")
 	var req updateDocumentRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -114,7 +110,6 @@ func (h *Handler) UpdateDocument(w http.ResponseWriter, r *http.Request) {
 
 // DeleteDocument 处理 DELETE /api/documents/{id}，删除文档。
 func (h *Handler) DeleteDocument(w http.ResponseWriter, r *http.Request) {
-	h.captureRequestContext(r)
 	id := pathValue(r, "id")
 	if err := h.svc.DeleteDocument(id); err != nil {
 		if errors.Is(err, model.ErrNotFound) {

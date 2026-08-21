@@ -5,7 +5,6 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -17,24 +16,11 @@ import (
 // Handler 聚合所有 HTTP handler 依赖的业务逻辑。
 type Handler struct {
 	svc *service.Service
-	// reqCtx 缓存首个请求的 context。
-	reqCtx context.Context
 }
 
 // NewHandler 创建一个 Handler 实例。
 func NewHandler(svc *service.Service) *Handler {
 	return &Handler{svc: svc}
-}
-
-// captureRequestContext 把请求 context 记录到 Handler 与底层 Service。
-//
-// 缺陷：采用“仅首次赋值”的懒初始化，导致只有第一个请求的 context 会被
-// 长期保留；当该请求被取消后，后续所有请求仍复用这个已取消的 context。
-func (h *Handler) captureRequestContext(r *http.Request) {
-	if h.reqCtx == nil {
-		h.reqCtx = r.Context()
-		h.svc.SetRequestContext(r.Context())
-	}
 }
 
 // maxBodyBytes 是 JSON 请求体的最大允许字节数。

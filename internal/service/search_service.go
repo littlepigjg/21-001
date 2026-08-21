@@ -12,9 +12,6 @@ func (s *Service) Search(req *model.SearchRequest) (*model.SearchResult, error) 
 	if req == nil || req.Query == "" {
 		return nil, model.ErrEmptyQuery
 	}
-	if err := s.contextErr(); err != nil {
-		return nil, err
-	}
 	start := time.Now()
 
 	req.Normalize(s.cfg.Search.DefaultPageSize, s.cfg.Search.MaxPageSize)
@@ -40,9 +37,6 @@ func (s *Service) Search(req *model.SearchRequest) (*model.SearchResult, error) 
 	// 加载候选文档并应用分类/标签过滤。
 	docs := make([]*model.Document, 0, len(candidates))
 	for _, id := range candidates {
-		if err := s.contextErr(); err != nil {
-			return nil, err
-		}
 		doc, err := s.store.GetDocument(id)
 		if err != nil {
 			continue
@@ -57,9 +51,6 @@ func (s *Service) Search(req *model.SearchRequest) (*model.SearchResult, error) 
 	}
 
 	// 构造命中项并排序。
-	if err := s.contextErr(); err != nil {
-		return nil, err
-	}
 	hits := s.buildHits(docs, queryTerms, req.SortBy)
 	total := len(hits)
 
@@ -176,9 +167,6 @@ func (s *Service) PopularDocuments(limit int) ([]model.SearchHit, error) {
 	if limit <= 0 || limit > s.cfg.Search.MaxPageSize {
 		limit = s.cfg.Search.DefaultPageSize
 	}
-	if err := s.contextErr(); err != nil {
-		return nil, err
-	}
 	docs, err := s.store.ListDocuments()
 	if err != nil {
 		return nil, err
@@ -204,9 +192,6 @@ func (s *Service) PopularDocuments(limit int) ([]model.SearchHit, error) {
 func (s *Service) RecentDocuments(limit int) ([]*model.Document, error) {
 	if limit <= 0 {
 		limit = s.cfg.Search.DefaultPageSize
-	}
-	if err := s.contextErr(); err != nil {
-		return nil, err
 	}
 	docs, err := s.store.ListDocuments()
 	if err != nil {

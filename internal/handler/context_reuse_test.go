@@ -49,3 +49,38 @@ func TestBugContext023_ReuseCanceledContext(t *testing.T) {
 	}
 	fmt.Printf("GREEN（绿灯，缺陷已修复）：第二次请求在全新 context 下正常返回 %d\n", rec2.Code)
 }
+
+// TestBugContext023_ReuseCanceledContextDocuments 覆盖 /api/documents 列表路径：
+// 第一次请求的 context 被取消后，第二次列表请求不应被污染。
+//
+// 期望行为：ListDocuments 同样不应复用已取消的请求 context，第二次请求返回 200。
+func TestBugContext023_ReuseCanceledContextDocuments(t *testing.T) {
+	cfg := config.Get()
+	cfg.Storage.DataDir = t.TempDir()
+	cfg.Storage.AutoSave = false
+
+	st, err := store.NewStore(cfg.Storage)
+	if err != nil {
+		t.Fatalf("构建存储失败: %v", err)
+	}
+	svc := service.New(st, cfg)
+	h := NewHandler(svc)
+
+	// 第一次请求使用随后即被取消的 context，模拟客户端主动断开连接。
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	req1 := httptest.NewRequest(http.MethodGet, "/api/documents?page=1&page_size=10", nil).WithContext(ctx1)
+	rec1 := httptest.NewRecorder()
+	h.ListDocuments(rec1, req1)
+	cancel1()
+
+	// 第二次请求携带全新的、未取消的 context，必须独立执行。
+	req2 := httptest.NewRequest(http.MethodGet, "/api/documents?page=1&page_size=10", nil)
+	rec2 := httptest.NewRecorder()
+	h.ListDocuments(rec2, req2)
+
+	if rec2.Code != http.StatusOK {
+		fmt.Printf("RED（红灯，缺陷未修复）：第二次列表请求本应正常返回 200，实际返回 %d，body=%s\n", rec2.Code, rec2.Body.String())
+		t.Fatalf("第二次列表请求被第一次请求已取消的 context 污染，期望 200，实际 %d", rec2.Code)
+	}
+	fmt.Printf("GREEN（绿灯，缺陷已修复）：第二次列表请求在全新 context 下正常返回 %d\n", rec2.Code)
+}
