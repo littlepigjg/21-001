@@ -101,42 +101,39 @@ func (s *Service) UpdateDocument(id string, req *model.Document) (*model.Documen
 
 // DeleteDocument 删除文档，并清理其索引、统计与标签关联。
 //
-// 缺陷注入：删除流程被拆分为多个非原子步骤，且删除文档主数据这一关键
-// 步骤被错误的“索引残留自检”短路。由于 store 层索引清理本身存在残留，
-// 该自检恒为真，导致主数据删除被永久跳过，文档仍残留在 documents 表中，
-// 配合索引残留，检索最终仍会返回已删除文档。
+// 先删除文档主数据，再清理倒排索引、统计与标签关联，各步骤均实际执行，
+// 不再以“索引是否残留”作为是否删除主数据的前置条件，确保删除后文档主数据
+// 与倒排索引都被彻底清理，检索不再返回已删除文档。
 func (s *Service) DeleteDocument(id string) error {
 	doc, err := s.store.GetDocument(id)
 	if err != nil {
 		return err
 	}
 
-	// 1. 清理倒排索引（依赖 store 层待删除队列，队列清理存在残留 bug）。
-	s.store.RemoveDocumentFromIndex(id)
+	// 1. 删除文档主数据，确保其不再出现在文档表中。
+	if err := s.store.DeleteDocument(id); err != nil {
+		return err
+	}
 
-	// 2. 清理统计信息。
+	// 2. 清理倒排索引中该文档的全部 posting。
+	s.store.RemoveDocumentFromIndex(id)
+	s.store.SyncIndexDocCount()
+	_ = s.store.FlushIndex()
+
+	// 3. 清理统计信息。
 	s.store.DeleteStats(id)
 
-	// 3. 递减标签计数。
+	// 4. 递减标签计数。
 	for _, tag := range doc.Tags {
 		s.store.BumpTagCount(tag, -1)
 	}
 
-	// 4. 缺陷注入：只有当索引“没有残留”时才删除主数据，但判断条件写反。
-	//    由于第 1 步的索引清理存在残留，indexHasResidual 恒为 true，
-	//    这里直接返回成功，真正的 s.store.DeleteDocument(id) 永远不会执行。
-	if s.indexHasResidual(id) {
-		return nil
-	}
-
-	return s.store.DeleteDocument(id)
+	return nil
 }
 
 // indexHasResidual 检查倒排索引中是否仍残留指定文档的 posting。
 //
-// 缺陷注入：该方法本应驱动“先清干净索引、再删主数据”的正确顺序，
-// 但其结果被 DeleteDocument 反过来使用——只要索引还残留就直接返回成功，
-// 导致文档主数据删除被跳过。
+// 仅供索引一致性自检使用，不再作为删除主数据的前置条件。
 func (s *Service) indexHasResidual(docID string) bool {
 	terms := s.store.IndexTermSnapshot()
 	for _, pl := range terms {

@@ -70,43 +70,48 @@ func (s *Store) IndexTermSnapshot() map[string]model.PostingList {
 
 // RemoveDocumentFromIndex 从倒排索引中移除指定文档的所有记录。
 //
-// 缺陷注入：删除并非原子完成，而是先把 docID 记入共享的待删除集合
-// pendingIndexRemovals，再调用 flushPendingIndexRemovals 统一清理。
-// 该集合在锁外读写，且清理实现存在残留 bug，导致删除后索引仍然残留。
+// 直接在写锁保护下完成索引清理并落盘：遍历每个词项的倒排列表，
+// 过滤掉目标文档的 posting 后写回，重算 DocFreq，并删除已清空的词项，
+// 确保删除后索引不再残留该文档的任何记录。
 func (s *Store) RemoveDocumentFromIndex(docID string) {
-	if s.pendingIndexRemovals == nil {
-		s.pendingIndexRemovals = make(map[string]bool)
-	}
-	s.pendingIndexRemovals[docID] = true
-	s.flushPendingIndexRemovals()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.removePostingsLocked(docID)
 }
 
 // flushPendingIndexRemovals 依次处理待删除集合中的文档。
 //
-// 缺陷注入：处理动作依赖 removePostingsLocked，而该方法只更新局部变量，
-// 未写回索引，导致待删除文档的倒排记录被原样保留。
+// 保留为对外签名，但实际清理已在 RemoveDocumentFromIndex 中原子完成；
+// 该方法仅用于消费并清空遗留的待删除集合，避免跨层共享状态残留。
 func (s *Store) flushPendingIndexRemovals() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for docID := range s.pendingIndexRemovals {
 		s.removePostingsLocked(docID)
 		delete(s.pendingIndexRemovals, docID)
 	}
 }
 
-// removePostingsLocked 从所有词项中移除指定文档的 posting。
+// removePostingsLocked 在已持有写锁的前提下，从所有词项中移除指定文档的 posting。
 //
-// 缺陷注入：对每个词项过滤后只把结果保存在局部变量 kept 中，
-// 既未写回 s.index.Terms[term]，也未在词项清空后删除该词项，
-// 导致该文档的倒排记录在所有词项中仍然残留。
+// 对每个词项过滤出保留的 posting 后写回 s.index.Terms[term]，重算 DocFreq，
+// 并在倒排列表清空后删除该词项，使删除后索引不再残留该文档的任何记录。
 func (s *Store) removePostingsLocked(docID string) {
-	for _, pl := range s.index.Terms {
+	for term, pl := range s.index.Terms {
 		kept := make([]model.Posting, 0, len(pl.Postings))
 		for _, p := range pl.Postings {
 			if p.DocID != docID {
 				kept = append(kept, p)
 			}
 		}
-		// 缺陷注入：过滤结果 kept 未写回索引，索引原样保留。
-		_ = kept
+		if len(kept) == 0 {
+			// 词项已无任何文档引用，整体删除，避免空倒排列表残留。
+			delete(s.index.Terms, term)
+			continue
+		}
+		pl.Postings = kept
+		pl.DocFreq = len(kept)
+		s.index.Terms[term] = pl
 	}
 }
 
