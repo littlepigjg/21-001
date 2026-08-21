@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"benzhi/internal/model"
@@ -25,21 +26,20 @@ type updateDocumentRequest struct {
 
 // documentErrorStatus 把文档操作错误映射为业务状态码。
 //
-// 缺陷：用 err.Error() 字符串精确比较来识别错误类型，而不是用 errors.Is
-// 判断错误链。服务层为错误补充上下文后，字符串不再精确相等，所有分支都会
-// 落到 default，把“文档不存在”误判为内部错误，最终返回 500 而非 404。
+// 用 errors.Is 沿错误链识别哨兵错误，避免对被补充过上下文的错误文本
+// 做字符串比较，从而正确把“文档不存在”等错误映射为 404 而非 500。
 func documentErrorStatus(err error) int {
 	if err == nil {
 		return response.CodeOK
 	}
-	switch err.Error() {
-	case model.ErrNotFound.Error():
+	switch {
+	case errors.Is(err, model.ErrNotFound):
 		return response.CodeNotFound
-	case model.ErrAlreadyExists.Error():
+	case errors.Is(err, model.ErrAlreadyExists):
 		return response.CodeConflict
-	case model.ErrInvalidArgument.Error():
+	case errors.Is(err, model.ErrInvalidArgument):
 		return response.CodeBadRequest
-	case model.ErrTooLarge.Error():
+	case errors.Is(err, model.ErrTooLarge):
 		return response.CodeTooLarge
 	default:
 		return response.CodeInternal

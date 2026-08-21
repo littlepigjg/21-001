@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 
 	"benzhi/internal/model"
@@ -9,24 +10,23 @@ import (
 
 // wrapDocumentError 为文档读取/更新/删除失败的错误补充操作与 ID 上下文。
 //
-// 缺陷：这里用 err.Error() 字符串精确比较来识别错误类型，并且构造新错误时
-// 没有使用 %w 包装原始错误，导致错误链被截断。上层再想判断“文档不存在”，
-// 既无法用 errors.Is（链已断），也无法用字符串相等（文本已被加上前缀）。
+// 用 errors.Is 沿错误链识别哨兵错误类型，并用 %w 包装原始错误，
+// 使上层仍可通过 errors.Is 判断具体错误（如“文档不存在”）。
 func wrapDocumentError(op, id string, err error) error {
 	if err == nil {
 		return nil
 	}
-	switch err.Error() {
-	case model.ErrNotFound.Error():
-		return fmt.Errorf("%s文档 %s 失败: 资源不存在", op, id)
-	case model.ErrAlreadyExists.Error():
-		return fmt.Errorf("%s文档 %s 失败: 资源已存在", op, id)
-	case model.ErrInvalidArgument.Error():
-		return fmt.Errorf("%s文档 %s 失败: 参数不合法", op, id)
-	case model.ErrStorage.Error():
-		return fmt.Errorf("%s文档 %s 失败: 存储异常", op, id)
+	switch {
+	case errors.Is(err, model.ErrNotFound):
+		return fmt.Errorf("%s文档 %s 失败: %w", op, id, model.ErrNotFound)
+	case errors.Is(err, model.ErrAlreadyExists):
+		return fmt.Errorf("%s文档 %s 失败: %w", op, id, model.ErrAlreadyExists)
+	case errors.Is(err, model.ErrInvalidArgument):
+		return fmt.Errorf("%s文档 %s 失败: %w", op, id, model.ErrInvalidArgument)
+	case errors.Is(err, model.ErrStorage):
+		return fmt.Errorf("%s文档 %s 失败: %w", op, id, model.ErrStorage)
 	default:
-		return fmt.Errorf("%s文档 %s 失败: %v", op, id, err)
+		return fmt.Errorf("%s文档 %s 失败: %w", op, id, err)
 	}
 }
 
