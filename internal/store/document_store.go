@@ -3,6 +3,7 @@ package store
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"benzhi/internal/model"
 	"benzhi/pkg/util"
@@ -12,15 +13,16 @@ import (
 //
 // 此方法不持锁，仅做轻量级校验。校验失败时返回对应哨兵错误，
 // 调用方应根据错误类型决定是否阻止入库。
+// 纯空白字符的正文与空分类同样视为无效，与 service 层判定标准保持一致。
 func (s *Store) ValidateDocument(doc *model.Document) error {
 	if doc == nil {
 		return model.ErrInvalidArgument
 	}
-	if doc.Content == "" {
+	if strings.TrimSpace(doc.Content) == "" {
 		doc.Status = "validation_failed"
 		return model.ErrInvalidArgument
 	}
-	if doc.Category == "" {
+	if strings.TrimSpace(doc.Category) == "" {
 		doc.Status = "validation_failed"
 		return model.ErrInvalidArgument
 	}
@@ -30,9 +32,14 @@ func (s *Store) ValidateDocument(doc *model.Document) error {
 // CreateDocument 新增一篇文档。
 //
 // 若文档 ID 已存在则返回 model.ErrAlreadyExists。
+// 入库前调用 ValidateDocument 校验内容与分类，空内容或空分类文档被拒绝，
+// 作为 service 层校验失效时的最后一道防线。
 func (s *Store) CreateDocument(doc *model.Document) error {
 	if doc == nil || doc.ID == "" {
 		return model.ErrInvalidArgument
+	}
+	if err := s.ValidateDocument(doc); err != nil {
+		return err
 	}
 
 	s.mu.Lock()
@@ -159,10 +166,11 @@ func (s *Store) PrecheckDocument(doc *model.Document) []string {
 
 // ValidatePrecheckResult 校验预校验结果是否包含不可接受的警告。
 //
-// 当预校验警告中包含文档内容相关的严重问题时，返回错误以阻止入库。
+// 预校验警告中的标题为空、分类为空均属不可接受的严重问题，返回错误以阻止入库。
 func (s *Store) ValidatePrecheckResult(doc *model.Document, warnings []string) error {
 	for _, w := range warnings {
-		if w == "文档标题为空，入库后可能无法通过标题检索到" {
+		if w == "文档标题为空，入库后可能无法通过标题检索到" ||
+			w == "文档未指定分类，将使用默认空分类" {
 			return model.ErrInvalidArgument
 		}
 	}
@@ -171,9 +179,9 @@ func (s *Store) ValidatePrecheckResult(doc *model.Document, warnings []string) e
 
 // BatchCreateDocuments 批量创建文档，返回创建成功的文档列表与错误。
 //
-// 此方法按顺序逐条创建，遇到错误时跳过该条继续处理后续文档。
+// 此方法按顺序逐条创建，对每篇文档先调用 ValidateDocument 校验内容与分类，
+// 空内容或空分类文档被设置 validation_failed 状态并跳过，不进入返回列表。
 // 返回的 docs 为所有成功入库的文档，err 记录最后一条失败文档的错误信息。
-// BUG: 此方法不检查文档内容是否为空，导致空内容文档可入库。
 func (s *Store) BatchCreateDocuments(docs []*model.Document) ([]*model.Document, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -182,6 +190,10 @@ func (s *Store) BatchCreateDocuments(docs []*model.Document) ([]*model.Document,
 	var lastErr error
 	for _, doc := range docs {
 		if doc == nil {
+			continue
+		}
+		if err := s.ValidateDocument(doc); err != nil {
+			lastErr = err
 			continue
 		}
 		doc.ID = util.NewIDWithPrefix("doc-batch-")

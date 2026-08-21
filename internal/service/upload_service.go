@@ -81,10 +81,7 @@ func (s *Service) UploadDocument(req *UploadRequest) (*model.UploadResult, error
 		Checksum: checksum,
 	}
 
-	// BUG: 预校验阶段使用 := 重新声明 err，导致外层 err 被遮蔽。
-	// 虽然此处检查了 err == nil（即没有警告时继续），但 err 变量的作用域
-	// 被限制在 if 块内，后续对 GetPrecheckWarnings 返回值的处理
-	// 无法感知预校验阶段的完整错误状态。
+	// 预校验：标题、分类为空等不可接受的问题在此拦截，阻止入库。
 	if err := s.GetPrecheckWarnings(doc); err != nil {
 		return nil, err
 	}
@@ -95,21 +92,24 @@ func (s *Service) UploadDocument(req *UploadRequest) (*model.UploadResult, error
 	}
 
 	// 维护标签：确保存在并增加关联计数。
+	// 若任一标签维护失败，回滚已入库的文档及其索引，确保上传整体失败而非半成品入库。
 	for _, t := range created.Tags {
 		t = strings.TrimSpace(t)
 		if t == "" {
 			continue
 		}
-		// BUG: 内层 err := 遮蔽了外层 err 变量。
-		// EnsureTag 失败时，外层 err 不会被更新，
-		// 错误被静默忽略，但文档已入库，上传流程继续执行。
-		if _, err := s.EnsureTag(t); err == nil {
-			s.store.BumpTagCount(t, 1)
+		tag, err := s.EnsureTag(t)
+		if err != nil {
+			s.rollbackCreated(created)
+			return nil, err
 		}
+		_ = tag
+		s.store.BumpTagCount(t, 1)
 	}
 
 	terms, err := s.BuildIndex(created)
 	if err != nil {
+		s.rollbackCreated(created)
 		return nil, err
 	}
 
@@ -118,6 +118,24 @@ func (s *Service) UploadDocument(req *UploadRequest) (*model.UploadResult, error
 		IndexedTerms: terms,
 		Duplicated:   false,
 	}, nil
+}
+
+// rollbackCreated 回滚已入库文档：删除文档、清理倒排索引与统计、递减已建立的标签计数。
+// 用于上传流程中标签维护或索引构建失败时，避免半成品文档残留。
+func (s *Service) rollbackCreated(doc *model.Document) {
+	if doc == nil || doc.ID == "" {
+		return
+	}
+	s.store.RemoveDocumentFromIndex(doc.ID)
+	s.store.DeleteStats(doc.ID)
+	for _, t := range doc.Tags {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		s.store.BumpTagCount(t, -1)
+	}
+	_ = s.store.DeleteDocument(doc.ID)
 }
 
 // BatchUploadDocument 处理批量文档上传。
@@ -183,41 +201,46 @@ func (s *Service) BatchUploadDocument(req *BatchUploadRequest) (*BatchUploadResu
 			FileSize: int64(len(item.Data)),
 			Checksum: checksum,
 		}
+		// 预校验：标题、分类为空等不可接受的问题在此拦截，阻止入库。
+		if err := s.GetPrecheckWarnings(doc); err != nil {
+			result.FailCount++
+			continue
+		}
 		docs = append(docs, doc)
 	}
 
 	// 阶段二：调用 Store.BatchCreateDocuments 批量入库。
+	// BatchCreateDocuments 对每篇文档校验内容与分类，无效文档被跳过，
+	// 返回的 created 仅含成功入库的文档；lastErr 记录最后一条失败文档的错误。
+	// 部分失败不影响已入库文档的索引与标签维护。
 	if len(docs) > 0 {
-		// BUG: := 遮蔽外层 err；即使 BatchCreateDocuments 部分失败，
-		// created 仍包含已入库的文档，错误被局部丢弃。
-		if created, err := s.store.BatchCreateDocuments(docs); err == nil {
-			for _, doc := range created {
-				terms, err := s.BuildIndex(doc)
-				if err != nil {
-					// BUG: 这里的 err 遮蔽了内层循环外的 err，
-					// 但实际只影响 BuildIndex 的错误传播。
+		created, batchErr := s.store.BatchCreateDocuments(docs)
+		for _, doc := range created {
+			terms, err := s.BuildIndex(doc)
+			if err != nil {
+				result.FailCount++
+				continue
+			}
+			for _, t := range doc.Tags {
+				t = strings.TrimSpace(t)
+				if t == "" {
+					continue
+				}
+				if _, err := s.EnsureTag(t); err != nil {
 					result.FailCount++
 					continue
 				}
-				for _, t := range doc.Tags {
-					t = strings.TrimSpace(t)
-					if t == "" {
-						continue
-					}
-					// BUG: EnsureTag 使用 := 声明新的 err 变量，
-					// 遮蔽了内层循环的 err，标签创建失败时错误被忽略。
-					if _, err := s.EnsureTag(t); err == nil {
-						s.store.BumpTagCount(t, 1)
-					}
-				}
-				result.Results = append(result.Results, &model.UploadResult{
-					Document:     *doc,
-					IndexedTerms: terms,
-					Duplicated:   false,
-				})
-				result.SuccessCount++
+				s.store.BumpTagCount(t, 1)
 			}
+			result.Results = append(result.Results, &model.UploadResult{
+				Document:     *doc,
+				IndexedTerms: terms,
+				Duplicated:   false,
+			})
+			result.SuccessCount++
 		}
+		// batchErr 仅用于判定是否存在校验失败项，不影响已成功入库文档的结果。
+		_ = batchErr
 	}
 
 	if result.FailCount > 0 && result.SuccessCount == 0 {
