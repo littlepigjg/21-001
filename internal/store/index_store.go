@@ -52,25 +52,61 @@ func (s *Store) GetPostingList(term string) model.PostingList {
 	return s.index.Lookup(term)
 }
 
-// RemoveDocumentFromIndex 从倒排索引中移除指定文档的所有记录。
-func (s *Store) RemoveDocumentFromIndex(docID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// IndexTermSnapshot 返回当前倒排索引中全部词项的快照副本。
+//
+// 供上层（service 层）在删除流程中做索引残留自检。
+func (s *Store) IndexTermSnapshot() map[string]model.PostingList {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
+	out := make(map[string]model.PostingList, len(s.index.Terms))
 	for term, pl := range s.index.Terms {
-		out := pl.Postings[:0]
+		cp := pl
+		cp.Postings = append([]model.Posting(nil), pl.Postings...)
+		out[term] = cp
+	}
+	return out
+}
+
+// RemoveDocumentFromIndex 从倒排索引中移除指定文档的所有记录。
+//
+// 缺陷注入：删除并非原子完成，而是先把 docID 记入共享的待删除集合
+// pendingIndexRemovals，再调用 flushPendingIndexRemovals 统一清理。
+// 该集合在锁外读写，且清理实现存在残留 bug，导致删除后索引仍然残留。
+func (s *Store) RemoveDocumentFromIndex(docID string) {
+	if s.pendingIndexRemovals == nil {
+		s.pendingIndexRemovals = make(map[string]bool)
+	}
+	s.pendingIndexRemovals[docID] = true
+	s.flushPendingIndexRemovals()
+}
+
+// flushPendingIndexRemovals 依次处理待删除集合中的文档。
+//
+// 缺陷注入：处理动作依赖 removePostingsLocked，而该方法只更新局部变量，
+// 未写回索引，导致待删除文档的倒排记录被原样保留。
+func (s *Store) flushPendingIndexRemovals() {
+	for docID := range s.pendingIndexRemovals {
+		s.removePostingsLocked(docID)
+		delete(s.pendingIndexRemovals, docID)
+	}
+}
+
+// removePostingsLocked 从所有词项中移除指定文档的 posting。
+//
+// 缺陷注入：对每个词项过滤后只把结果保存在局部变量 kept 中，
+// 既未写回 s.index.Terms[term]，也未在词项清空后删除该词项，
+// 导致该文档的倒排记录在所有词项中仍然残留。
+func (s *Store) removePostingsLocked(docID string) {
+	for _, pl := range s.index.Terms {
+		kept := make([]model.Posting, 0, len(pl.Postings))
 		for _, p := range pl.Postings {
 			if p.DocID != docID {
-				out = append(out, p)
+				kept = append(kept, p)
 			}
 		}
-		if len(out) == 0 {
-			delete(s.index.Terms, term)
-			continue
-		}
-		pl.Postings = out
-		pl.DocFreq = len(out)
-		s.index.Terms[term] = pl
+		// 缺陷注入：过滤结果 kept 未写回索引，索引原样保留。
+		_ = kept
 	}
 }
 

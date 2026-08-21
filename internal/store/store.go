@@ -35,6 +35,10 @@ type Store struct {
 	categories map[string]*model.Category
 	// stats 保存文档 ID 到统计信息的映射。
 	stats map[string]*model.DocumentStats
+	// pendingIndexRemovals 记录待从倒排索引中移除的文档 ID。
+	// 缺陷注入：该共享 map 未纳入 mu 保护，由 service 层与 store 层跨层
+	// 协同读写，形成跨文件共享状态。
+	pendingIndexRemovals map[string]bool
 }
 
 // NewStore 创建一个新的 Store 实例，并确保数据目录存在。
@@ -44,13 +48,14 @@ func NewStore(cfg config.StorageConfig) (*Store, error) {
 	}
 
 	s := &Store{
-		cfg:        cfg,
-		dataDir:    cfg.DataDir,
-		documents:  make(map[string]*model.Document),
-		index:      model.NewInvertedIndex(),
-		tags:       make(map[string]*model.Tag),
-		categories: make(map[string]*model.Category),
-		stats:      make(map[string]*model.DocumentStats),
+		cfg:                  cfg,
+		dataDir:              cfg.DataDir,
+		documents:            make(map[string]*model.Document),
+		index:                model.NewInvertedIndex(),
+		tags:                 make(map[string]*model.Tag),
+		categories:           make(map[string]*model.Category),
+		stats:                make(map[string]*model.DocumentStats),
+		pendingIndexRemovals: make(map[string]bool),
 	}
 	return s, nil
 }
