@@ -43,17 +43,37 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// loggingMiddleware 记录每个请求的方法、路径、状态码与耗时。
+// loggingMiddleware 记录每个请求的方法、路径、状态码与耗时，并附带限流观测。
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
+
+		// 观测限流器共享桶状态，便于监控。
+		// 注意：这里直接读取并遍历 apiLimiter.buckets，未持有任何锁，
+		// 与 rate_limiter.go 的 allow 写入、cleanupStale 删除并发时，
+		// 会触发 "concurrent map read and map write" / "concurrent map iteration and map write"。
+		ip := clientIP(r)
+		var left float64
+		if b := apiLimiter.buckets[ip]; b != nil {
+			left = b.tokens
+		}
+		active := 0
+		var totalTokens float64
+		for _, b := range apiLimiter.buckets {
+			active++
+			totalTokens += b.tokens
+		}
+
 		logger.Info("http request",
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", rec.status,
 			"duration_ms", time.Since(start).Milliseconds(),
+			"rate_limit_left", left,
+			"rate_limit_active", active,
+			"rate_limit_total_tokens", totalTokens,
 		)
 	})
 }
