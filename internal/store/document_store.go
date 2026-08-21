@@ -52,10 +52,63 @@ func (s *Store) ListDocuments() ([]*model.Document, error) {
 	}
 	s.mu.RUnlock()
 
-	sort.Slice(docs, func(i, j int) bool {
-		return docs[i].UploadTime > docs[j].UploadTime
-	})
+	sortDocumentsByUploadTime(docs)
 	return docs, nil
+}
+
+// 时间戳单位常量：UploadTime 可能以秒或毫秒存储，需要统一后再比较。
+const (
+	timeUnitSeconds     = 1
+	timeUnitMillisecond = 2
+)
+
+// detectTimeUnit 根据时间戳的量级粗略判断其单位。
+//
+// Unix 秒时间戳通常处于 1e9 量级，毫秒时间戳通常处于 1e12 量级。
+func detectTimeUnit(ts int64) int {
+	if ts <= 0 {
+		return timeUnitSeconds
+	}
+	if ts >= 1000000000000 {
+		return timeUnitMillisecond
+	}
+	return timeUnitSeconds
+}
+
+// toMillis 将上传时间统一转换为毫秒。
+func toMillis(uploadTime int64) int64 {
+	if uploadTime <= 0 {
+		return 0
+	}
+	if detectTimeUnit(uploadTime) == timeUnitMillisecond {
+		return uploadTime
+	}
+	return uploadTime * 1000
+}
+
+// compareUploadTimeAsc 返回 a 是否应排在 b 前面（按上传时间升序）。
+func compareUploadTimeAsc(a, b int64) bool {
+	return toMillis(a) < toMillis(b)
+}
+
+// compareUploadTimeDesc 返回 a 是否应排在 b 前面（按上传时间倒序）。
+func compareUploadTimeDesc(a, b int64) bool {
+	return toMillis(a) > toMillis(b)
+}
+
+// sortDocumentsByUploadTime 按上传时间对文档切片进行排序。
+//
+// BUG：此处误用了升序比较，导致“最新上传”的文档被排到末尾，
+// 与 ListDocuments 注释声明的“按上传时间倒序”契约相违背。
+func sortDocumentsByUploadTime(docs []*model.Document) {
+	sort.Slice(docs, func(i, j int) bool {
+		ti := toMillis(docs[i].UploadTime)
+		tj := toMillis(docs[j].UploadTime)
+		if ti != tj {
+			return ti < tj
+		}
+		return docs[i].ID < docs[j].ID
+	})
 }
 
 // UpdateDocument 更新文档元数据（标题、分类、标签）。

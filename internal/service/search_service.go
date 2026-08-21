@@ -133,14 +133,68 @@ func (s *Service) sortHits(hits []model.SearchHit, sortBy string) {
 			return pi > pj
 		})
 	case model.SortByTime:
-		sort.SliceStable(hits, func(i, j int) bool {
-			return hits[i].Document.UploadTime > hits[j].Document.UploadTime
-		})
+		sortHitsByUploadTime(hits)
 	default:
 		sort.SliceStable(hits, func(i, j int) bool {
 			return hits[i].Score > hits[j].Score
 		})
 	}
+}
+
+// 时间戳单位常量：命中文档的 UploadTime 可能以秒或毫秒存储。
+const (
+	hitTimeUnitSeconds     = 1
+	hitTimeUnitMillisecond = 2
+)
+
+// hitDetectTimeUnit 根据时间戳量级粗略判断其单位。
+func hitDetectTimeUnit(ts int64) int {
+	if ts <= 0 {
+		return hitTimeUnitSeconds
+	}
+	if ts >= 1000000000000 {
+		return hitTimeUnitMillisecond
+	}
+	return hitTimeUnitSeconds
+}
+
+// hitToMillis 将命中文档的上传时间统一转换为毫秒。
+//
+// 与 store 层的 toMillis 保持一致，避免检索结果与文档列表在时间排序上
+// 出现单位混用导致的不一致。
+func hitToMillis(uploadTime int64) int64 {
+	if uploadTime <= 0 {
+		return 0
+	}
+	if hitDetectTimeUnit(uploadTime) == hitTimeUnitMillisecond {
+		return uploadTime
+	}
+	return uploadTime * 1000
+}
+
+// hitCompareUploadTimeAsc 返回 a 是否应排在 b 前面（按上传时间升序）。
+func hitCompareUploadTimeAsc(a, b int64) bool {
+	return hitToMillis(a) < hitToMillis(b)
+}
+
+// hitCompareUploadTimeDesc 返回 a 是否应排在 b 前面（按上传时间倒序）。
+func hitCompareUploadTimeDesc(a, b int64) bool {
+	return hitToMillis(a) > hitToMillis(b)
+}
+
+// sortHitsByUploadTime 按上传时间对命中列表排序。
+//
+// BUG：此处误用了升序比较，导致按上传时间检索时“最新上传”的结果被排到末尾，
+// 与 store.ListDocuments 声明的时间倒序契约相违背。
+func sortHitsByUploadTime(hits []model.SearchHit) {
+	sort.SliceStable(hits, func(i, j int) bool {
+		ti := hitToMillis(hits[i].Document.UploadTime)
+		tj := hitToMillis(hits[j].Document.UploadTime)
+		if ti != tj {
+			return ti < tj
+		}
+		return hits[i].Document.ID < hits[j].Document.ID
+	})
 }
 
 // paginate 对命中列表做分页切片。
