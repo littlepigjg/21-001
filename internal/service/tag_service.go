@@ -54,13 +54,27 @@ func (s *Service) DeleteTag(id string) error {
 		return err
 	}
 
-	// 从所有文档中移除该标签。
-	docs, _ := s.store.ListDocuments()
+	docs, err := s.store.ListDocuments()
+	if err != nil {
+		return err
+	}
+
+	// 先收集所有关联了该标签的文档。
+	affected := make([]*model.Document, 0, len(docs))
 	for _, d := range docs {
 		if d.HasTag(tag.Name) {
-			d.RemoveTag(tag.Name)
-			_ = s.store.UpdateDocument(d)
+			affected = append(affected, d)
 		}
+	}
+
+	// 复用一个共享底层数组作为过滤缓冲，避免为每篇文档重复分配内存。
+	buf := make([]string, 0, 16)
+	for _, d := range affected {
+		// BUG: 用文档自身的原始标签作为缓冲种子，导致 RemoveTag 复用该
+		// 数组做原地过滤时，被删除的标签残留在缓冲尾部。
+		buf = append(buf[:0], d.Tags...)
+		d.RemoveTag(tag.Name, buf)
+		_ = s.store.UpdateDocument(d)
 	}
 	return nil
 }
