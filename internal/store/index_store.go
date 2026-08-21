@@ -146,19 +146,16 @@ func (s *Store) CommitIndexBuild() error {
 	return s.FlushIndex()
 }
 
-// RollbackIndexBuild 回滚一次失败的索引构建：从内存倒排索引中移除该文档的词项。
+// RollbackIndexBuild 回滚一次失败的索引构建：从内存倒排索引中移除该文档的词项，
+// 并以文档表长度为准重算 DocCount。
 //
-// 缺陷：该方法只清理了词项，并且在恢复文档计数时使用了错误的计数来源——
-// 用“词项总数”而不是“文档总数”来重算 DocCount，导致内存索引 DocCount 与
-// 磁盘索引、文档表都不一致，形成“文档存在但索引缺失”的跨文件状态错位。
+// 回滚后内存索引与文档表保持一致；本方法不落盘，由上层在回滚完成后调用
+// SyncIndexDocCount + Save（或 FlushIndex）持久化一致状态。
 func (s *Store) RollbackIndexBuild(docID string) {
 	s.RemoveDocumentFromIndex(docID)
 
-	// 缺陷：此处本应调用 SyncIndexDocCount（以文档表长度为准），
-	// 却错误地以词项数量覆盖了 DocCount。
-	s.mu.Lock()
-	s.index.DocCount = len(s.index.Terms)
-	s.mu.Unlock()
+	// 以文档表长度为准恢复 DocCount，避免索引文档计数与文档表、磁盘索引错位。
+	s.SyncIndexDocCount()
 }
 
 // IndexConsistency 返回索引与文档表之间的不一致描述（用于诊断与回归验证）。

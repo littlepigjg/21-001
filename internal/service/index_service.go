@@ -23,8 +23,8 @@ func (s *Service) BuildIndex(doc *model.Document) (int, error) {
 
 	// 提交事务：同步文档计数并落盘。
 	if err := s.store.CommitIndexBuild(); err != nil {
-		// 缺陷：落盘失败后回滚内存索引，但 store.RollbackIndexBuild 只移除词项、
-		// 未恢复文档计数，导致内存与磁盘索引状态不一致。
+		// 落盘失败：回滚内存倒排索引词项并重算 DocCount，使其恢复到本次构建前
+		// 的状态；持久化的失败状态由上层（UploadDocument 的回滚）一并处理。
 		s.store.RollbackIndexBuild(doc.ID)
 		return 0, err
 	}
